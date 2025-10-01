@@ -1,0 +1,7 @@
+project_id = "vqqlbwewboceccjmqvgs"
+
+[functions.parse-content]
+verify_jwt = false
+
+[functions.generate-mcqs]
+verify_jwt = false
