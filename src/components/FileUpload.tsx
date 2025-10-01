@@ -55,24 +55,30 @@ export const FileUpload = ({ onParse }: FileUploadProps) => {
           toast.error('Please enter a URL');
           return;
         }
-        // For now, we'll just pass the URL - the backend will fetch it
         onParse({ sourceType: 'url', text: '', sourceUrl: urlInput.trim() });
       } else if (activeTab === 'pdf') {
         if (!file) {
           toast.error('Please upload a PDF file');
           return;
         }
-        // Read PDF and extract text (simplified for now)
-        const reader = new FileReader();
-        reader.onload = async (e) => {
-          const text = e.target?.result as string;
-          // Note: Real PDF parsing will be done in the backend
-          onParse({ sourceType: 'pdf', text: text || '' });
-        };
-        reader.readAsText(file);
+        
+        // Import PDF parser dynamically
+        const { extractTextFromPDF, normalizeText } = await import('@/lib/pdfParser');
+        
+        toast.info('Extracting text from PDF...');
+        const rawText = await extractTextFromPDF(file);
+        const normalizedText = normalizeText(rawText);
+        
+        if (normalizedText.length < 100) {
+          toast.error('PDF contains too little text. Please try a different file.');
+          return;
+        }
+        
+        onParse({ sourceType: 'pdf', text: normalizedText });
       }
     } catch (error) {
-      toast.error('Failed to parse content');
+      console.error('Parse error:', error);
+      toast.error(error instanceof Error ? error.message : 'Failed to parse content');
     } finally {
       setIsLoading(false);
     }

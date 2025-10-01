@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { BookOpen, Sparkles } from 'lucide-react';
 import { FileUpload } from '@/components/FileUpload';
 import { ConfigCard } from '@/components/ConfigCard';
@@ -6,8 +6,23 @@ import { GenerationProgress } from '@/components/GenerationProgress';
 import { MCQQuestion } from '@/components/MCQQuestion';
 import { ResultsSummary } from '@/components/ResultsSummary';
 import { toast } from 'sonner';
+import { 
+  parseContent, 
+  createStudySet, 
+  generateMCQs, 
+  fetchStudySet,
+  createQuizSession,
+  recordAttempt,
+  completeQuizSession,
+  type MCQItem 
+} from '@/lib/api';
 
 type Stage = 'upload' | 'config' | 'generating' | 'quiz' | 'results';
+
+type GenerationStep = {
+  label: string;
+  status: 'pending' | 'active' | 'completed' | 'error';
+};
 
 const Index = () => {
   const [stage, setStage] = useState<Stage>('upload');
@@ -16,58 +31,150 @@ const Index = () => {
   const [topics, setTopics] = useState<string[]>([]);
   const [previewText, setPreviewText] = useState('');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
+  const [studySetId, setStudySetId] = useState<string>('');
+  const [sessionId, setSessionId] = useState<string>('');
+  const [questions, setQuestions] = useState<MCQItem[]>([]);
+  const [generationSteps, setGenerationSteps] = useState<GenerationStep[]>([
+    { label: 'Parsing content', status: 'pending' },
+    { label: 'Chunking text', status: 'pending' },
+    { label: 'Generating MCQs with AI', status: 'pending' },
+    { label: 'Validating questions', status: 'pending' },
+    { label: 'Finalising', status: 'pending' },
+  ]);
+  const [sessionStartTime, setSessionStartTime] = useState(0);
+  const [attempts, setAttempts] = useState<Array<{
+    itemId: string;
+    response: string;
+    isCorrect: boolean;
+    timeMs: number;
+  }>>([]);
 
-  // Mock data for demonstration
-  const mockQuestions = [
-    {
-      stem: 'What is the primary purpose of photosynthesis in plants?',
-      options: [
-        { label: 'A', text: 'To produce oxygen for animals' },
-        { label: 'B', text: 'To convert light energy into chemical energy' },
-        { label: 'C', text: 'To absorb carbon dioxide from the atmosphere' },
-        { label: 'D', text: 'To generate heat for the plant' },
-      ],
-      answerKey: 'B',
-      solution: 'Photosynthesis is the process by which plants convert light energy (usually from the sun) into chemical energy stored in glucose molecules. Whilst oxygen production and CO₂ absorption are important byproducts, the primary purpose is energy conversion.',
-      sources: [
-        { chunkId: '1', excerpt: 'Photosynthesis occurs in the chloroplasts of plant cells, where light energy is captured by chlorophyll and converted into glucose.' },
-        { chunkId: '2', excerpt: 'The process involves light-dependent and light-independent reactions that ultimately produce energy-rich sugar molecules.' },
-      ],
-    },
-  ];
+  const handleParse = async (data: { sourceType: string; text: string; sourceUrl?: string }) => {
+    try {
+      toast.info('Processing your content...');
+      
+      // Call parse-content edge function
+      const parseResult = await parseContent(
+        data.sourceType,
+        data.text,
+        data.sourceUrl
+      );
+      
+      setSourceType(data.sourceType);
+      setSourceText(parseResult.text);
+      setPreviewText(parseResult.text.slice(0, 5000));
+      
+      // Extract topics from comma-separated string
+      const extractedTopics = parseResult.topics
+        .split(',')
+        .map(t => t.trim())
+        .filter(Boolean);
+      setTopics(extractedTopics);
+      
+      setStage('config');
+      toast.success('Content parsed successfully');
+    } catch (error) {
+      console.error('Parse error:', error);
+      toast.error('Failed to parse content. Please try again.');
+    }
+  };
 
-  const handleParse = (data: { sourceType: string; text: string; sourceUrl?: string }) => {
-    setSourceType(data.sourceType);
-    setSourceText(data.text);
-    setPreviewText(data.text.slice(0, 5000));
-    
-    // Auto-extract topics (mock)
-    const extractedTopics = ['biology', 'photosynthesis', 'plant science'];
-    setTopics(extractedTopics);
-    
-    setStage('config');
-    toast.success('Content parsed successfully');
+  const updateGenerationStep = (index: number, status: GenerationStep['status']) => {
+    setGenerationSteps(prev => prev.map((step, i) => 
+      i === index ? { ...step, status } : step
+    ));
   };
 
   const handleGenerate = async (config: { mcqCount: number; difficulty: string; topics: string[] }) => {
-    setStage('generating');
-    toast.info('Starting MCQ generation...');
-
-    // Mock generation steps
-    // In production, this would call the backend edge function
-    setTimeout(() => setStage('quiz'), 3000);
+    try {
+      setStage('generating');
+      
+      // Step 1: Create study set
+      updateGenerationStep(0, 'active');
+      const setId = await createStudySet(
+        `Study Set - ${new Date().toLocaleDateString()}`,
+        sourceText,
+        config.topics,
+        config
+      );
+      setStudySetId(setId);
+      updateGenerationStep(0, 'completed');
+      
+      // Step 2-5: Generate MCQs (handled by backend)
+      updateGenerationStep(1, 'active');
+      await new Promise(resolve => setTimeout(resolve, 500)); // UI feedback
+      updateGenerationStep(1, 'completed');
+      
+      updateGenerationStep(2, 'active');
+      const result = await generateMCQs(setId);
+      updateGenerationStep(2, 'completed');
+      
+      updateGenerationStep(3, 'active');
+      await new Promise(resolve => setTimeout(resolve, 500));
+      updateGenerationStep(3, 'completed');
+      
+      updateGenerationStep(4, 'active');
+      
+      // Fetch generated questions
+      const { items } = await fetchStudySet(setId);
+      
+      if (items.length === 0) {
+        throw new Error('No questions were generated. Please try with different content or settings.');
+      }
+      
+      setQuestions(items);
+      updateGenerationStep(4, 'completed');
+      
+      // Create quiz session
+      const sessionId = await createQuizSession(
+        setId,
+        items.map(item => item.id)
+      );
+      setSessionId(sessionId);
+      setSessionStartTime(Date.now());
+      
+      toast.success(`Generated ${items.length} questions!`);
+      
+      setTimeout(() => {
+        setStage('quiz');
+      }, 1000);
+    } catch (error) {
+      console.error('Generation error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Failed to generate MCQs. Please try again.';
+      toast.error(errorMessage);
+      
+      // Mark current step as error
+      const activeStepIndex = generationSteps.findIndex(s => s.status === 'active');
+      if (activeStepIndex >= 0) {
+        updateGenerationStep(activeStepIndex, 'error');
+      }
+    }
   };
 
-  const handleAnswer = (response: string, isCorrect: boolean) => {
+  const handleAnswer = async (response: string, isCorrect: boolean, timeMs: number) => {
+    const currentQuestion = questions[currentQuestionIndex];
+    
     // Record attempt
-    console.log({ response, isCorrect });
+    const attempt = {
+      itemId: currentQuestion.id,
+      response,
+      isCorrect,
+      timeMs,
+    };
+    setAttempts(prev => [...prev, attempt]);
+    
+    try {
+      await recordAttempt(sessionId, currentQuestion.id, response, isCorrect, timeMs);
+    } catch (error) {
+      console.error('Failed to record attempt:', error);
+    }
   };
 
   const handleNextQuestion = () => {
-    if (currentQuestionIndex < mockQuestions.length - 1) {
+    if (currentQuestionIndex < questions.length - 1) {
       setCurrentQuestionIndex(currentQuestionIndex + 1);
     } else {
-      setStage('results');
+      finishQuiz();
     }
   };
 
@@ -77,13 +184,71 @@ const Index = () => {
     }
   };
 
+  const finishQuiz = async () => {
+    const totalMs = Date.now() - sessionStartTime;
+    const correctCount = attempts.filter(a => a.isCorrect).length;
+    const score = Math.round((correctCount / questions.length) * 100);
+    
+    try {
+      await completeQuizSession(sessionId, score, totalMs);
+    } catch (error) {
+      console.error('Failed to complete session:', error);
+    }
+    
+    setStage('results');
+  };
+
   const handleRetryIncorrect = () => {
-    toast.info('Retry functionality coming soon');
+    const incorrectQuestions = attempts
+      .filter(a => !a.isCorrect)
+      .map(a => questions.find(q => q.id === a.itemId))
+      .filter(Boolean) as MCQItem[];
+    
+    if (incorrectQuestions.length === 0) {
+      toast.info('No incorrect answers to retry!');
+      return;
+    }
+    
+    setQuestions(incorrectQuestions);
+    setCurrentQuestionIndex(0);
+    setAttempts([]);
+    setSessionStartTime(Date.now());
+    setStage('quiz');
+    toast.info(`Retrying ${incorrectQuestions.length} questions`);
   };
 
   const handleExport = () => {
-    toast.info('Export functionality coming soon');
+    const csvContent = [
+      ['Question', 'Your Answer', 'Correct Answer', 'Result', 'Time (ms)'],
+      ...attempts.map(attempt => {
+        const question = questions.find(q => q.id === attempt.itemId);
+        return [
+          question?.stem.slice(0, 100) || '',
+          attempt.response,
+          question?.answer_key || '',
+          attempt.isCorrect ? 'Correct' : 'Incorrect',
+          attempt.timeMs.toString(),
+        ];
+      }),
+    ]
+      .map(row => row.map(cell => `"${cell}"`).join(','))
+      .join('\n');
+    
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `quiz-results-${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
+    
+    toast.success('Results exported!');
   };
+
+  const currentQuestion = questions[currentQuestionIndex];
+  const correctCount = attempts.filter(a => a.isCorrect).length;
+  const score = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
+  const totalMs = Date.now() - sessionStartTime;
 
   return (
     <div className="min-h-screen gradient-subtle">
@@ -125,7 +290,10 @@ const Index = () => {
                   {previewText || 'No preview available'}
                 </p>
                 {sourceText.length > 5000 && (
-                  <button className="text-sm text-primary hover:underline mt-4">
+                  <button 
+                    onClick={() => setPreviewText(sourceText)}
+                    className="text-sm text-primary hover:underline mt-4"
+                  >
                     Show more...
                   </button>
                 )}
@@ -144,43 +312,40 @@ const Index = () => {
 
         {stage === 'generating' && (
           <div className="max-w-2xl mx-auto">
-            <GenerationProgress
-              steps={[
-                { label: 'Chunking text', status: 'completed' },
-                { label: 'Indexing embeddings', status: 'active' },
-                { label: 'Generating MCQs', status: 'pending' },
-                { label: 'Validating questions', status: 'pending' },
-                { label: 'Finalising', status: 'pending' },
-              ]}
-            />
+            <GenerationProgress steps={generationSteps} />
           </div>
         )}
 
-        {stage === 'quiz' && mockQuestions.length > 0 && (
+        {stage === 'quiz' && currentQuestion && (
           <MCQQuestion
-            {...mockQuestions[currentQuestionIndex]}
+            stem={currentQuestion.stem}
+            options={currentQuestion.options}
+            answerKey={currentQuestion.answer_key}
+            solution={currentQuestion.solution}
+            sources={currentQuestion.sources}
             currentIndex={currentQuestionIndex}
-            total={mockQuestions.length}
+            total={questions.length}
             onAnswer={handleAnswer}
             onNext={handleNextQuestion}
             onPrevious={handlePreviousQuestion}
-            hasNext={currentQuestionIndex < mockQuestions.length - 1}
+            hasNext={currentQuestionIndex < questions.length - 1}
             hasPrevious={currentQuestionIndex > 0}
           />
         )}
 
         {stage === 'results' && (
           <ResultsSummary
-            score={85}
-            totalMs={180000}
-            attempts={[
-              {
-                stem: 'What is the primary purpose of photosynthesis in plants?',
-                chosen: 'B',
-                correct: 'B',
-                isCorrect: true,
-              },
-            ]}
+            score={score}
+            totalMs={totalMs}
+            attempts={attempts.map(attempt => {
+              const question = questions.find(q => q.id === attempt.itemId);
+              return {
+                stem: question?.stem || '',
+                chosen: attempt.response,
+                correct: question?.answer_key || '',
+                isCorrect: attempt.isCorrect,
+              };
+            })}
             onRetryIncorrect={handleRetryIncorrect}
             onExport={handleExport}
           />

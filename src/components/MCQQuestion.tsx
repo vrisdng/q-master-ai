@@ -13,7 +13,7 @@ interface Option {
 }
 
 interface Source {
-  chunkId: string;
+  chunkId?: string;
   excerpt: string;
 }
 
@@ -25,7 +25,7 @@ interface MCQQuestionProps {
   sources: Source[];
   currentIndex: number;
   total: number;
-  onAnswer: (response: string, isCorrect: boolean) => void;
+  onAnswer: (response: string, isCorrect: boolean, timeMs: number) => void;
   onNext: () => void;
   onPrevious: () => void;
   hasNext: boolean;
@@ -54,7 +54,7 @@ export const MCQQuestion = ({
     if (!selectedOption) return;
     const isCorrect = selectedOption === answerKey;
     const timeMs = Date.now() - startTime;
-    onAnswer(selectedOption, isCorrect);
+    onAnswer(selectedOption, isCorrect, timeMs);
     setIsChecked(true);
   };
 
