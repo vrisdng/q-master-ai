@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckCircle, XCircle, ChevronRight, ChevronLeft } from 'lucide-react';
+import { CheckCircle, XCircle, ChevronRight, ChevronLeft, Trophy } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -177,6 +177,15 @@ export const MCQQuestion = ({
           >
             Next
             <ChevronRight className="h-4 w-4" />
+          </Button>
+        )}
+        {!hasNext && isChecked && (
+          <Button
+            onClick={handleNext}
+            className="flex-1 gap-2 gradient-primary hover:opacity-90"
+          >
+            <Trophy className="h-4 w-4" />
+            Finish Quiz
           </Button>
         )}
       </div>
