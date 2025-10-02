@@ -94,6 +94,59 @@ export type Database = {
           },
         ]
       }
+      documents: {
+        Row: {
+          content_sha: string | null
+          created_at: string
+          description: string | null
+          id: string
+          metadata: Json
+          owner_id: string
+          page_count: number | null
+          source_type: string
+          status: string
+          storage_path: string | null
+          title: string
+          updated_at: string
+        }
+        Insert: {
+          content_sha?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          metadata?: Json
+          owner_id?: string
+          page_count?: number | null
+          source_type: string
+          status?: string
+          storage_path?: string | null
+          title: string
+          updated_at?: string
+        }
+        Update: {
+          content_sha?: string | null
+          created_at?: string
+          description?: string | null
+          id?: string
+          metadata?: Json
+          owner_id?: string
+          page_count?: number | null
+          source_type?: string
+          status?: string
+          storage_path?: string | null
+          title?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "documents_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       items: {
         Row: {
           answer_key: string
@@ -144,26 +197,40 @@ export type Database = {
       profiles: {
         Row: {
           avatar_url: string | null
-          created_at: string | null
+          created_at: string
+          display_name: string | null
           id: string
-          updated_at: string | null
+          metadata: Json
+          updated_at: string
           username: string | null
         }
         Insert: {
           avatar_url?: string | null
-          created_at?: string | null
+          created_at?: string
+          display_name?: string | null
           id: string
-          updated_at?: string | null
+          metadata?: Json
+          updated_at?: string
           username?: string | null
         }
         Update: {
           avatar_url?: string | null
-          created_at?: string | null
+          created_at?: string
+          display_name?: string | null
           id?: string
-          updated_at?: string | null
+          metadata?: Json
+          updated_at?: string
           username?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "profiles_id_fkey"
+            columns: ["id"]
+            isOneToOne: true
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       quiz_sessions: {
         Row: {
@@ -208,6 +275,8 @@ export type Database = {
           config: Json
           created_at: string
           id: string
+          owner_id: string | null
+          source_document_id: string | null
           source_type: string
           source_url: string | null
           text: string
@@ -218,6 +287,8 @@ export type Database = {
           config?: Json
           created_at?: string
           id?: string
+          owner_id?: string | null
+          source_document_id?: string | null
           source_type: string
           source_url?: string | null
           text: string
@@ -228,13 +299,30 @@ export type Database = {
           config?: Json
           created_at?: string
           id?: string
+          owner_id?: string | null
+          source_document_id?: string | null
           source_type?: string
           source_url?: string | null
           text?: string
           title?: string
           topics?: string[] | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "study_sets_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_sets_source_document_id_fkey"
+            columns: ["source_document_id"]
+            isOneToOne: false
+            referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       user_roles: {
         Row: {

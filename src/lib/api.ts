@@ -1,4 +1,4 @@
-import { supabase } from '@/integrations/supabase/client';
+import { supabase } from "@/integrations/supabase/client";
 
 export interface ParseResponse {
   text: string;
@@ -28,6 +28,49 @@ export interface MCQItem {
   sources: { chunkId?: string; excerpt: string }[];
 }
 
+export interface UserProfile {
+  id: string;
+  username: string | null;
+  displayName: string | null;
+  avatarUrl: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProfileDocument {
+  id: string;
+  ownerId: string;
+  title: string;
+  description: string | null;
+  sourceType: string;
+  storagePath: string | null;
+  status: string;
+  pageCount: number | null;
+  contentSha: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProfileStudySet {
+  id: string;
+  ownerId: string | null;
+  title: string;
+  createdAt: string;
+  sourceType: string;
+  sourceUrl: string | null;
+  topics: string[] | null;
+  config: Record<string, unknown>;
+  sourceDocumentId: string | null;
+}
+
+export interface ProfileResponse {
+  profile: UserProfile;
+  documents: ProfileDocument[];
+  studySets: ProfileStudySet[];
+}
+
 /**
  * Parse content from various sources
  */
@@ -36,7 +79,7 @@ export const parseContent = async (
   text?: string,
   url?: string
 ): Promise<ParseResponse> => {
-  const { data, error } = await supabase.functions.invoke('parse-content', {
+  const { data, error } = await supabase.functions.invoke("parse-content", {
     body: { sourceType, text, url },
   });
 
@@ -54,15 +97,15 @@ export const createStudySet = async (
   config: { mcqCount: number; difficulty: string; topics?: string[] }
 ): Promise<string> => {
   const { data, error } = await supabase
-    .from('study_sets')
+    .from("study_sets")
     .insert({
       title,
       text,
       topics,
       config,
-      source_type: 'text', // This will be updated based on actual source
+      source_type: "text", // This will be updated based on actual source
     })
-    .select('id')
+    .select("id")
     .single();
 
   if (error) throw error;
@@ -75,7 +118,7 @@ export const createStudySet = async (
 export const generateMCQs = async (
   studySetId: string
 ): Promise<{ status: string; counts: { mcq: number } }> => {
-  const { data, error } = await supabase.functions.invoke('generate-mcqs', {
+  const { data, error } = await supabase.functions.invoke("generate-mcqs", {
     body: { studySetId },
   });
 
@@ -91,24 +134,24 @@ export const fetchStudySet = async (studySetId: string): Promise<{
   items: MCQItem[];
 }> => {
   const { data: studySet, error: studySetError } = await supabase
-    .from('study_sets')
-    .select('*')
-    .eq('id', studySetId)
+    .from("study_sets")
+    .select("*")
+    .eq("id", studySetId)
     .single();
 
   if (studySetError) throw studySetError;
 
   const { data: items, error: itemsError } = await supabase
-    .from('items')
-    .select('*')
-    .eq('study_set_id', studySetId)
-    .order('created_at');
+    .from("items")
+    .select("*")
+    .eq("study_set_id", studySetId)
+    .order("created_at");
 
   if (itemsError) throw itemsError;
 
-  return { 
-    studySet: studySet as unknown as StudySet, 
-    items: items as unknown as MCQItem[] 
+  return {
+    studySet: studySet as unknown as StudySet,
+    items: items as unknown as MCQItem[],
   };
 };
 
@@ -120,12 +163,12 @@ export const createQuizSession = async (
   questionIds: string[]
 ): Promise<string> => {
   const { data, error } = await supabase
-    .from('quiz_sessions')
+    .from("quiz_sessions")
     .insert({
       study_set_id: studySetId,
       question_ids: questionIds,
     })
-    .select('id')
+    .select("id")
     .single();
 
   if (error) throw error;
@@ -142,7 +185,7 @@ export const recordAttempt = async (
   isCorrect: boolean,
   timeMs: number
 ): Promise<void> => {
-  const { error } = await supabase.from('attempts').insert({
+  const { error } = await supabase.from("attempts").insert({
     session_id: sessionId,
     item_id: itemId,
     response,
@@ -162,13 +205,13 @@ export const completeQuizSession = async (
   totalMs: number
 ): Promise<void> => {
   const { error } = await supabase
-    .from('quiz_sessions')
+    .from("quiz_sessions")
     .update({
       completed_at: new Date().toISOString(),
       score,
       time_total_ms: totalMs,
     })
-    .eq('id', sessionId);
+    .eq("id", sessionId);
 
   if (error) throw error;
 };
@@ -178,19 +221,33 @@ export const completeQuizSession = async (
  */
 export const fetchQuizResults = async (sessionId: string) => {
   const { data: session, error: sessionError } = await supabase
-    .from('quiz_sessions')
-    .select('*')
-    .eq('id', sessionId)
+    .from("quiz_sessions")
+    .select("*")
+    .eq("id", sessionId)
     .single();
 
   if (sessionError) throw sessionError;
 
   const { data: attempts, error: attemptsError } = await supabase
-    .from('attempts')
-    .select('*, items(*)')
-    .eq('session_id', sessionId);
+    .from("attempts")
+    .select("*, items(*)")
+    .eq("session_id", sessionId);
 
   if (attemptsError) throw attemptsError;
 
   return { session, attempts };
+};
+
+/**
+ * Fetch the authenticated user's profile details
+ */
+export const fetchProfile = async (): Promise<ProfileResponse> => {
+  const { data, error } = await supabase.functions.invoke<ProfileResponse>("get-profile", {
+    method: "GET",
+  });
+
+  if (error) throw error;
+  if (!data) throw new Error("No profile data returned");
+
+  return data;
 };
