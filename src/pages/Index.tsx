@@ -1,13 +1,16 @@
 import { useState, useEffect } from 'react';
-import { BookOpen, Sparkles, FileText, Link as LinkIcon } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { BookOpen, Sparkles, FileText, Link as LinkIcon, LogOut, User } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
 import { FileUpload } from '@/components/FileUpload';
 import { ConfigCard } from '@/components/ConfigCard';
 import { GenerationProgress } from '@/components/GenerationProgress';
 import { MCQQuestion } from '@/components/MCQQuestion';
 import { ResultsSummary } from '@/components/ResultsSummary';
 import { toast } from 'sonner';
+import { useAuth } from '@/hooks/useAuth';
 import { 
   parseContent, 
   createStudySet, 
@@ -27,6 +30,8 @@ type GenerationStep = {
 };
 
 const Index = () => {
+  const navigate = useNavigate();
+  const { user, profile, loading, signOut } = useAuth();
   const [stage, setStage] = useState<Stage>('upload');
   const [sourceText, setSourceText] = useState('');
   const [sourceType, setSourceType] = useState('');
@@ -51,6 +56,28 @@ const Index = () => {
     isCorrect: boolean;
     timeMs: number;
   }>>([]);
+
+  // Auth protection
+  useEffect(() => {
+    if (!loading && !user) {
+      navigate('/auth');
+    }
+  }, [user, loading, navigate]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Sparkles className="h-8 w-8 mx-auto mb-4 text-primary animate-pulse" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
 
   const handleParse = async (data: { sourceType: string; text: string; sourceUrl?: string }) => {
     try {
@@ -246,13 +273,33 @@ const Index = () => {
       {/* Header */}
       <header className="border-b border-border bg-card/50 backdrop-blur-sm sticky top-0 z-50 shadow-soft">
         <div className="container mx-auto px-4 py-4">
-          <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-xl gradient-primary flex items-center justify-center">
-              <BookOpen className="h-6 w-6 text-primary-foreground" />
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-xl gradient-primary flex items-center justify-center">
+                <BookOpen className="h-6 w-6 text-primary-foreground" />
+              </div>
+              <div>
+                <h1 className="text-xl font-bold">Study Helper</h1>
+                <p className="text-xs text-muted-foreground">AI-powered MCQ generation</p>
+              </div>
             </div>
-            <div>
-              <h1 className="text-xl font-bold">Study Helper</h1>
-              <p className="text-xs text-muted-foreground">AI-powered MCQ generation</p>
+            
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 text-sm">
+                <User className="h-4 w-4 text-muted-foreground" />
+                <span className="text-muted-foreground">
+                  {profile?.username || user.email?.split('@')[0]}
+                </span>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={signOut}
+                className="gap-2"
+              >
+                <LogOut className="h-4 w-4" />
+                Sign Out
+              </Button>
             </div>
           </div>
         </div>
