@@ -236,34 +236,6 @@ const Index = () => {
     toast.info('Configure a new test set');
   };
 
-  const handleExport = () => {
-    const csvContent = [
-      ['Question', 'Your Answer', 'Correct Answer', 'Result', 'Time (ms)'],
-      ...attempts.map(attempt => {
-        const question = questions.find(q => q.id === attempt.itemId);
-        return [
-          question?.stem.slice(0, 100) || '',
-          attempt.response,
-          question?.answer_key || '',
-          attempt.isCorrect ? 'Correct' : 'Incorrect',
-          attempt.timeMs.toString(),
-        ];
-      }),
-    ]
-      .map(row => row.map(cell => `"${cell}"`).join(','))
-      .join('\n');
-    
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `quiz-results-${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-    
-    toast.success('Results exported!');
-  };
-
   const currentQuestion = questions[currentQuestionIndex];
   const correctCount = attempts.filter(a => a.isCorrect).length;
   const score = questions.length > 0 ? Math.round((correctCount / questions.length) * 100) : 0;
@@ -393,7 +365,6 @@ const Index = () => {
             })}
             onRetryIncorrect={handleRetryIncorrect}
             onNewTest={handleNewTest}
-            onExport={handleExport}
           />
         )}
       </main>
