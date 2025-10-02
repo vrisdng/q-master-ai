@@ -1,4 +1,4 @@
-import { Award, Download, RotateCcw, Clock } from 'lucide-react';
+import { Award, Download, RotateCcw, Clock, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +15,7 @@ interface ResultsSummaryProps {
   totalMs: number;
   attempts: AttemptResult[];
   onRetryIncorrect: () => void;
+  onNewTest: () => void;
   onExport: () => void;
 }
 
@@ -23,6 +24,7 @@ export const ResultsSummary = ({
   totalMs,
   attempts,
   onRetryIncorrect,
+  onNewTest,
   onExport,
 }: ResultsSummaryProps) => {
   const totalQuestions = attempts.length;
@@ -55,6 +57,10 @@ export const ResultsSummary = ({
             <Button variant="outline" onClick={onRetryIncorrect} className="gap-2">
               <RotateCcw className="h-4 w-4" />
               Retry Incorrect
+            </Button>
+            <Button variant="default" onClick={onNewTest} className="gap-2 gradient-primary">
+              <Plus className="h-4 w-4" />
+              Generate New Test
             </Button>
             <Button variant="outline" onClick={onExport} className="gap-2">
               <Download className="h-4 w-4" />

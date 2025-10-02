@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
-import { BookOpen, Sparkles } from 'lucide-react';
+import { BookOpen, Sparkles, FileText, Link as LinkIcon } from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card } from '@/components/ui/card';
 import { FileUpload } from '@/components/FileUpload';
 import { ConfigCard } from '@/components/ConfigCard';
 import { GenerationProgress } from '@/components/GenerationProgress';
@@ -28,6 +30,7 @@ const Index = () => {
   const [stage, setStage] = useState<Stage>('upload');
   const [sourceText, setSourceText] = useState('');
   const [sourceType, setSourceType] = useState('');
+  const [sourceUrl, setSourceUrl] = useState('');
   const [topics, setTopics] = useState<string[]>([]);
   const [previewText, setPreviewText] = useState('');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
@@ -62,7 +65,8 @@ const Index = () => {
       
       setSourceType(data.sourceType);
       setSourceText(parseResult.text);
-      setPreviewText(parseResult.text.slice(0, 5000));
+      setPreviewText(parseResult.text);
+      setSourceUrl(data.sourceUrl || '');
       
       // Extract topics from comma-separated string
       const extractedTopics = parseResult.topics
@@ -217,6 +221,21 @@ const Index = () => {
     toast.info(`Retrying ${incorrectQuestions.length} questions`);
   };
 
+  const handleNewTest = () => {
+    setQuestions([]);
+    setCurrentQuestionIndex(0);
+    setAttempts([]);
+    setGenerationSteps([
+      { label: 'Parsing content', status: 'pending' },
+      { label: 'Chunking text', status: 'pending' },
+      { label: 'Generating MCQs with AI', status: 'pending' },
+      { label: 'Validating questions', status: 'pending' },
+      { label: 'Finalising', status: 'pending' },
+    ]);
+    setStage('config');
+    toast.info('Configure a new test set');
+  };
+
   const handleExport = () => {
     const csvContent = [
       ['Question', 'Your Answer', 'Correct Answer', 'Result', 'Time (ms)'],
@@ -282,31 +301,57 @@ const Index = () => {
         )}
 
         {stage === 'config' && (
-          <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-2 gap-6">
-            <div>
-              <h3 className="text-xl font-semibold mb-4">Preview</h3>
-              <div className="bg-card rounded-lg p-6 shadow-medium h-[600px] overflow-y-auto">
-                <p className="text-sm leading-relaxed whitespace-pre-wrap">
-                  {previewText || 'No preview available'}
-                </p>
-                {sourceText.length > 5000 && (
-                  <button 
-                    onClick={() => setPreviewText(sourceText)}
-                    className="text-sm text-primary hover:underline mt-4"
-                  >
-                    Show more...
-                  </button>
-                )}
-              </div>
-            </div>
-            <div>
-              <h3 className="text-xl font-semibold mb-4">Configuration</h3>
-              <ConfigCard
-                topics={topics}
-                onTopicsChange={setTopics}
-                onGenerate={handleGenerate}
-              />
-            </div>
+          <div className="max-w-6xl mx-auto">
+            <Tabs defaultValue="config" className="w-full">
+              <TabsList className="mb-6">
+                <TabsTrigger value="preview">File Preview</TabsTrigger>
+                <TabsTrigger value="config">Configuration</TabsTrigger>
+              </TabsList>
+              
+              <TabsContent value="preview" className="space-y-4">
+                <Card className="p-6 shadow-medium">
+                  <div className="flex items-center gap-3 mb-4 pb-4 border-b border-border">
+                    {sourceType === 'pdf' && <FileText className="h-8 w-8 text-primary" />}
+                    {sourceType === 'text' && <FileText className="h-8 w-8 text-primary" />}
+                    {sourceType === 'url' && <LinkIcon className="h-8 w-8 text-primary" />}
+                    <div>
+                      <h3 className="font-semibold">
+                        {sourceType === 'pdf' && 'PDF Document'}
+                        {sourceType === 'text' && 'Text Input'}
+                        {sourceType === 'url' && 'Web Content'}
+                      </h3>
+                      {sourceUrl && (
+                        <p className="text-sm text-muted-foreground truncate max-w-lg">
+                          {sourceUrl}
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                  
+                  <div className="space-y-4">
+                    <div>
+                      <h4 className="font-medium mb-2">Parsed Text</h4>
+                      <div className="bg-muted rounded-lg p-4 max-h-[500px] overflow-y-auto">
+                        <p className="text-sm leading-relaxed whitespace-pre-wrap font-mono">
+                          {previewText || 'No preview available'}
+                        </p>
+                      </div>
+                      <p className="text-xs text-muted-foreground mt-2">
+                        {sourceText.length.toLocaleString()} characters • ~{Math.round(sourceText.length / 4)} tokens
+                      </p>
+                    </div>
+                  </div>
+                </Card>
+              </TabsContent>
+              
+              <TabsContent value="config">
+                <ConfigCard
+                  topics={topics}
+                  onTopicsChange={setTopics}
+                  onGenerate={handleGenerate}
+                />
+              </TabsContent>
+            </Tabs>
           </div>
         )}
 
@@ -347,6 +392,7 @@ const Index = () => {
               };
             })}
             onRetryIncorrect={handleRetryIncorrect}
+            onNewTest={handleNewTest}
             onExport={handleExport}
           />
         )}
