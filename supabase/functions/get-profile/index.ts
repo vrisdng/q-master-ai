@@ -14,7 +14,6 @@ type ProfileRow = {
   username: string | null;
   display_name: string | null;
   avatar_url: string | null;
-  metadata: Json;
   created_at: string;
   updated_at: string;
 };
@@ -121,7 +120,7 @@ serve(async (req) => {
 
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
-      .select("id, username, display_name, avatar_url, metadata, created_at, updated_at")
+      .select("id, username, display_name, avatar_url, created_at, updated_at")
       .eq("id", userId)
       .maybeSingle<ProfileRow>();
 
@@ -198,7 +197,6 @@ serve(async (req) => {
         username: profile.username,
         displayName: profile.display_name,
         avatarUrl: profile.avatar_url,
-        metadata: profile.metadata,
         createdAt: profile.created_at,
         updatedAt: profile.updated_at,
       },

@@ -33,7 +33,6 @@ export interface UserProfile {
   username: string | null;
   displayName: string | null;
   avatarUrl: string | null;
-  metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
 }
