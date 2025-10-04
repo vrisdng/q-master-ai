@@ -1,5 +1,8 @@
 project_id = "vqqlbwewboceccjmqvgs"
 
+[functions.get-profile]
+verify_jwt = true
+
 [functions.parse-content]
 verify_jwt = false
 
