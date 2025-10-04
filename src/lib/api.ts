@@ -88,22 +88,57 @@ export const parseContent = async (
 };
 
 /**
+ * Create a document record
+ */
+export const createDocument = async (params: {
+  title: string;
+  sourceType: string;
+  sourceUrl?: string;
+  content: string;
+}): Promise<string> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("User not authenticated");
+
+  const { data, error } = await (supabase as any)
+    .from("documents")
+    .insert({
+      title: params.title,
+      source_type: params.sourceType,
+      source_url: params.sourceUrl,
+      owner_id: user.id,
+      status: "processed",
+      metadata: { content: params.content },
+    })
+    .select("id")
+    .single();
+
+  if (error) throw error;
+  return data.id;
+};
+
+/**
  * Create a new study set
  */
 export const createStudySet = async (
   title: string,
   text: string,
   topics: string[],
-  config: { mcqCount: number; difficulty: string; topics?: string[] }
+  config: { mcqCount: number; difficulty: string; topics?: string[] },
+  documentId?: string
 ): Promise<string> => {
-  const { data, error } = await supabase
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("User not authenticated");
+
+  const { data, error } = await (supabase as any)
     .from("study_sets")
     .insert({
       title,
       text,
       topics,
       config,
-      source_type: "text", // This will be updated based on actual source
+      source_type: "uploaded",
+      source_document_id: documentId,
+      owner_id: user.id,
     })
     .select("id")
     .single();
