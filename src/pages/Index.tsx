@@ -9,6 +9,7 @@ import { ConfigCard } from '@/components/ConfigCard';
 import { GenerationProgress } from '@/components/GenerationProgress';
 import { MCQQuestion } from '@/components/MCQQuestion';
 import { ResultsSummary } from '@/components/ResultsSummary';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { 
@@ -137,13 +138,15 @@ const Index = () => {
       
       // Step 1: Create study set
       updateGenerationStep(0, 'active');
-      const setId = await createStudySet(
-        `Study Set - ${new Date().toLocaleDateString()}`,
-        sourceText,
-        config.topics,
+      const setId = await createStudySet({
+        title: `Study Set - ${new Date().toLocaleDateString()}`,
+        text: sourceText,
+        topics: config.topics,
         config,
-        documentId || undefined
-      );
+        sourceType,
+        sourceUrl: sourceType === 'url' ? sourceUrl : undefined,
+        documentId: documentId || undefined,
+      });
       setStudySetId(setId);
       updateGenerationStep(0, 'completed');
       
@@ -301,6 +304,7 @@ const Index = () => {
             </div>
             
             <div className="flex items-center gap-3">
+              <ThemeToggle />
               <Link
                 to="/profile"
                 className="inline-flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-sm font-medium text-foreground shadow-sm transition hover:border-primary hover:text-primary"

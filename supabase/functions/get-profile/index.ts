@@ -223,6 +223,7 @@ serve(async (req) => {
         createdAt: set.created_at,
         sourceType: set.source_type,
         sourceUrl: set.source_url,
+        text: set.text,
         topics: set.topics,
         config: set.config,
         sourceDocumentId: set.source_document_id,
