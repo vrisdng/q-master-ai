@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { 
   parseContent, 
+  createDocument,
   createStudySet, 
   generateMCQs, 
   fetchStudySet,
@@ -38,6 +39,7 @@ const Index = () => {
   const [sourceUrl, setSourceUrl] = useState('');
   const [topics, setTopics] = useState<string[]>([]);
   const [previewText, setPreviewText] = useState('');
+  const [documentId, setDocumentId] = useState<string>('');
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
   const [studySetId, setStudySetId] = useState<string>('');
   const [sessionId, setSessionId] = useState<string>('');
@@ -101,9 +103,22 @@ const Index = () => {
         .map(t => t.trim())
         .filter(Boolean);
       setTopics(extractedTopics);
+
+      // Save document to database
+      const docTitle = data.sourceUrl 
+        ? `Document from ${new URL(data.sourceUrl).hostname}` 
+        : `${data.sourceType.toUpperCase()} - ${new Date().toLocaleDateString()}`;
+      
+      const docId = await createDocument({
+        title: docTitle,
+        sourceType: data.sourceType,
+        sourceUrl: data.sourceUrl,
+        content: parseResult.text,
+      });
+      setDocumentId(docId);
       
       setStage('config');
-      toast.success('Content parsed successfully');
+      toast.success('Content parsed and saved successfully');
     } catch (error) {
       console.error('Parse error:', error);
       toast.error('Failed to parse content. Please try again.');
@@ -126,7 +141,8 @@ const Index = () => {
         `Study Set - ${new Date().toLocaleDateString()}`,
         sourceText,
         config.topics,
-        config
+        config,
+        documentId || undefined
       );
       setStudySetId(setId);
       updateGenerationStep(0, 'completed');
