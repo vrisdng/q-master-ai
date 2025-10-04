@@ -85,16 +85,6 @@ CREATE POLICY "Allow all access to attempts" ON public.attempts FOR ALL USING (t
 -- PROFILES & DOCUMENTS (USER-OWNED RESOURCES) PLUS OWNERSHIP METADATA LINKS
 -- ---------------------------------------------------------------------------
 
-CREATE TABLE public.profiles (
-  id UUID PRIMARY KEY REFERENCES auth.users(id) ON DELETE CASCADE,
-  username TEXT UNIQUE,
-  display_name TEXT,
-  avatar_url TEXT,
-  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
 ALTER TABLE public.profiles ENABLE ROW LEVEL SECURITY;
 
 CREATE TABLE public.documents (
