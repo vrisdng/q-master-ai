@@ -54,6 +54,9 @@ type StudySetRow = {
   topics: string[] | null;
   config: Json;
   source_document_id: string | null;
+  folder_id: string | null;
+  label_text: string | null;
+  label_color: string | null;
 };
 
 const corsHeaders = {
@@ -191,6 +194,9 @@ serve(async (req) => {
           "topics",
           "config",
           "source_document_id",
+          "folder_id",
+          "label_text",
+          "label_color",
         ].join(","),
       )
       .eq("owner_id", userId)
@@ -267,6 +273,9 @@ serve(async (req) => {
         topics: set.topics,
         config: set.config,
         sourceDocumentId: set.source_document_id,
+        folderId: set.folder_id,
+        labelText: set.label_text,
+        labelColor: set.label_color,
       })),
     };
 

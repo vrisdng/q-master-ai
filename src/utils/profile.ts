@@ -21,6 +21,9 @@ export type MappedStudySet = {
   createdAt: string;
   topics: string[] | null;
   text: string;
+  folderId: string | null;
+  labelText: string | null;
+  labelColor: string | null;
 };
 
 export type MappedFolder = {
@@ -47,6 +50,9 @@ export const mapStudySets = (studySets: ProfileStudySet[]): MappedStudySet[] =>
     createdAt: set.createdAt,
     topics: set.topics,
     text: set.text,
+    folderId: set.folderId,
+    labelText: set.labelText,
+    labelColor: set.labelColor,
   }));
 
 export const mapFolders = (folders: ProfileFolder[]): MappedFolder[] =>
@@ -58,13 +64,30 @@ export const mapFolders = (folders: ProfileFolder[]): MappedFolder[] =>
 export const computeFolderCounts = (
   folders: ProfileFolder[],
   documents: ProfileDocument[],
-): Map<string, number> => {
-  const counts = new Map<string, number>();
-  folders.forEach((folder) => counts.set(folder.id, 0));
+  studySets: ProfileStudySet[],
+): Map<string, { documents: number; studySets: number }> => {
+  const counts = new Map<string, { documents: number; studySets: number }>();
+
+  folders.forEach((folder) =>
+    counts.set(folder.id, {
+      documents: 0,
+      studySets: 0,
+    }),
+  );
+
   documents.forEach((doc) => {
-    if (doc.folderId) {
-      counts.set(doc.folderId, (counts.get(doc.folderId) ?? 0) + 1);
+    if (doc.folderId && counts.has(doc.folderId)) {
+      const value = counts.get(doc.folderId)!;
+      value.documents += 1;
     }
   });
+
+  studySets.forEach((set) => {
+    if (set.folderId && counts.has(set.folderId)) {
+      const value = counts.get(set.folderId)!;
+      value.studySets += 1;
+    }
+  });
+
   return counts;
 };

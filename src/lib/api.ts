@@ -70,6 +70,9 @@ export interface ProfileStudySet {
   config: Record<string, unknown>;
   sourceDocumentId: string | null;
   text: string;
+  folderId: string | null;
+  labelText: string | null;
+  labelColor: string | null;
 }
 
 export interface ProfileFolder {
@@ -85,6 +88,54 @@ export interface ProfileResponse {
   documents: ProfileDocument[];
   studySets: ProfileStudySet[];
   folders: ProfileFolder[];
+}
+
+export interface DocumentDetail {
+  id: string;
+  title: string;
+  sourceType: string;
+  content: string;
+  createdAt: string;
+}
+
+export interface SummaryKeyPoint {
+  id: string;
+  label: string;
+  summary: string;
+  evidence: string;
+  importance: number;
+}
+
+export interface SummaryKeyPointResponse {
+  keyPoints: SummaryKeyPoint[];
+  wordTarget: number;
+}
+
+export interface SummaryExample {
+  summary: string;
+  wordCount: number;
+  wordTarget: number;
+}
+
+export interface SummaryEvaluation {
+  coverage: {
+    score: number;
+    covered: number;
+    total: number;
+    missed: { id: string; label: string; reason: string }[];
+  };
+  conciseness: {
+    score: number;
+    comment: string;
+  };
+  originality: {
+    score: number;
+    comment: string;
+  };
+  strengths: string[];
+  improvements: string[];
+  rewriteHints: string[];
+  wordTarget: number;
 }
 
 /**
@@ -132,6 +183,32 @@ export const createDocument = async (params: {
 
   if (error) throw error;
   return data.id;
+};
+
+export const fetchDocumentById = async (documentId: string): Promise<DocumentDetail> => {
+  const { data, error } = await supabase
+    .from("documents")
+    .select("id, title, source_type, metadata, created_at")
+    .eq("id", documentId)
+    .maybeSingle<Database["public"]["Tables"]["documents"]["Row"]>();
+
+  if (error) throw error;
+  if (!data) throw new Error("Document not found");
+
+  const metadata = (data.metadata ?? {}) as Record<string, unknown>;
+  const content = metadata.content;
+
+  if (typeof content !== "string" || content.trim().length === 0) {
+    throw new Error("Document has no stored content");
+  }
+
+  return {
+    id: data.id,
+    title: data.title,
+    sourceType: data.source_type,
+    content,
+    createdAt: data.created_at,
+  };
 };
 
 /**
@@ -192,6 +269,67 @@ export const generateMCQs = async (
 
   if (error) throw error;
   return data;
+};
+
+export const fetchSummaryKeyPoints = async (documentId: string): Promise<SummaryKeyPointResponse> => {
+  const { data, error } = await supabase.functions.invoke<{ data?: SummaryKeyPointResponse }>(
+    "summarize-document",
+    {
+      body: { action: "key-points", documentId },
+    },
+  );
+
+  if (error) throw error;
+  if (!data?.data) throw new Error("Failed to load key points");
+
+  return data.data;
+};
+
+export const fetchExampleSummary = async (documentId: string): Promise<SummaryExample> => {
+  const { data, error } = await supabase.functions.invoke<{ data?: { summary: string; wordCount: number; wordTarget: number } }>(
+    "summarize-document",
+    {
+      body: { action: "example-summary", documentId },
+    },
+  );
+
+  if (error) throw error;
+  if (!data?.data) throw new Error("Failed to load example summary");
+
+  return {
+    summary: data.data.summary,
+    wordCount: data.data.wordCount,
+    wordTarget: data.data.wordTarget,
+  };
+};
+
+export const evaluateSummary = async (
+  documentId: string,
+  params: { summary: string; keyPoints: SummaryKeyPoint[] },
+): Promise<SummaryEvaluation> => {
+  const payloadKeyPoints = params.keyPoints.map((kp) => ({
+    id: kp.id,
+    label: kp.label,
+    summary: kp.summary,
+    evidence: kp.evidence,
+  }));
+
+  const { data, error } = await supabase.functions.invoke<{ data?: SummaryEvaluation }>(
+    "summarize-document",
+    {
+      body: {
+        action: "evaluate-summary",
+        documentId,
+        userSummary: params.summary,
+        keyPoints: payloadKeyPoints,
+      },
+    },
+  );
+
+  if (error) throw error;
+  if (!data?.data) throw new Error("Failed to evaluate summary");
+
+  return data.data;
 };
 
 /**
@@ -360,6 +498,69 @@ export const fetchProfile = async (): Promise<ProfileResponse> => {
     }
   }
 
+  if (!Array.isArray(data.documents)) {
+    data.documents = [];
+  }
+
+  const { data: userData } = await supabase.auth.getUser();
+  const userId = userData?.user?.id;
+
+  if (userId) {
+    const { data: latestDocuments, error: latestDocumentsError } = await supabase
+      .from("documents")
+      .select(
+        "id, owner_id, title, description, source_type, storage_path, status, page_count, content_sha, metadata, folder_id, created_at, updated_at",
+      )
+      .eq("owner_id", userId)
+      .order("created_at", { ascending: false })
+      .returns<Database["public"]["Tables"]["documents"]["Row"][]>();
+
+    if (!latestDocumentsError && latestDocuments) {
+      data.documents = latestDocuments.map((doc) => ({
+        id: doc.id,
+        ownerId: doc.owner_id,
+        title: doc.title,
+        description: doc.description,
+        sourceType: doc.source_type,
+        storagePath: doc.storage_path,
+        status: doc.status,
+        pageCount: doc.page_count,
+        contentSha: doc.content_sha,
+        metadata: doc.metadata as Record<string, unknown>,
+        folderId: doc.folder_id,
+        createdAt: doc.created_at,
+        updatedAt: doc.updated_at,
+      }));
+    }
+
+    const { data: latestStudySets, error: latestStudySetsError } = await supabase
+      .from("study_sets")
+      .select(
+        "id, owner_id, title, created_at, source_type, source_url, text, topics, config, source_document_id, folder_id, label_text, label_color",
+      )
+      .eq("owner_id", userId)
+      .order("created_at", { ascending: false })
+      .returns<Database["public"]["Tables"]["study_sets"]["Row"][]>();
+
+    if (!latestStudySetsError && latestStudySets) {
+      data.studySets = latestStudySets.map((set) => ({
+        id: set.id,
+        ownerId: set.owner_id,
+        title: set.title,
+        createdAt: set.created_at,
+        sourceType: set.source_type,
+        sourceUrl: set.source_url,
+        text: set.text,
+        topics: set.topics as string[] | null,
+        config: (set.config ?? {}) as Record<string, unknown>,
+        sourceDocumentId: set.source_document_id,
+        folderId: set.folder_id,
+        labelText: set.label_text,
+        labelColor: set.label_color,
+      }));
+    }
+  }
+
   return data;
 };
 
@@ -389,6 +590,24 @@ export const renameFolder = async (folderId: string, name: string): Promise<void
   if (error) throw error;
 };
 
+export const clearFolderAssignments = async (folderId: string): Promise<void> => {
+  const { error } = await supabase
+    .from("documents")
+    .update({ folder_id: null })
+    .eq("folder_id", folderId);
+
+  if (error) throw error;
+};
+
+export const deleteFolder = async (folderId: string): Promise<void> => {
+  const { error } = await supabase
+    .from("folders")
+    .delete()
+    .eq("id", folderId);
+
+  if (error) throw error;
+};
+
 export const moveDocumentToFolder = async (documentId: string, folderId: string | null): Promise<void> => {
   const { error } = await supabase
     .from("documents")
@@ -403,6 +622,32 @@ export const renameDocument = async (documentId: string, title: string): Promise
     .from("documents")
     .update({ title })
     .eq("id", documentId);
+
+  if (error) throw error;
+};
+
+export const updateStudySet = async (
+  studySetId: string,
+  updates: {
+    title?: string;
+    folderId?: string | null;
+    labelText?: string | null;
+    labelColor?: string | null;
+  },
+): Promise<void> => {
+  const payload: Record<string, unknown> = {};
+
+  if (typeof updates.title !== "undefined") payload.title = updates.title;
+  if (typeof updates.folderId !== "undefined") payload.folder_id = updates.folderId;
+  if (typeof updates.labelText !== "undefined") payload.label_text = updates.labelText;
+  if (typeof updates.labelColor !== "undefined") payload.label_color = updates.labelColor;
+
+  if (Object.keys(payload).length === 0) return;
+
+  const { error } = await supabase
+    .from("study_sets")
+    .update(payload)
+    .eq("id", studySetId);
 
   if (error) throw error;
 };

@@ -27,6 +27,7 @@ interface DocumentsSectionProps {
   documents: Document[];
   folders: FolderOption[];
   onViewDocument: (doc: { id: string; title: string; sourceType: string; content: string }) => void;
+  onStudyDocument: (documentId: string) => void;
   onDeleteDocument: (documentId: string) => void | Promise<void>;
   onRenameDocument: (documentId: string, newTitle: string) => void | Promise<void>;
   onMoveDocument: (documentId: string, folderId: string | null) => void | Promise<void>;
@@ -43,6 +44,7 @@ export const DocumentsSection = ({
   documents,
   folders,
   onViewDocument,
+  onStudyDocument,
   onDeleteDocument,
   onRenameDocument,
   onMoveDocument,
@@ -192,12 +194,18 @@ export const DocumentsSection = ({
                         <div className="bg-muted/50 rounded p-2 text-xs text-muted-foreground font-mono mb-2">
                           {getPreviewText(doc.metadata)}
                         </div>
-                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                           <span className="rounded-full bg-muted px-2 py-0.5 uppercase tracking-wide">
                             {doc.status}
                           </span>
                           <span className="uppercase">{doc.sourceType}</span>
                           <span>Uploaded {new Date(doc.createdAt).toLocaleDateString()}</span>
+                          <span className="flex items-center gap-1">
+                            Folder:
+                            <strong className="text-foreground">
+                              {doc.folderId ? folders.find((f) => f.id === doc.folderId)?.name ?? "Unknown" : "None"}
+                            </strong>
+                          </span>
                         </div>
                       </div>
                       <div className="flex flex-col gap-3 self-end sm:self-start">
@@ -206,7 +214,8 @@ export const DocumentsSection = ({
                           <Select
                             value={doc.folderId ?? "none"}
                             onValueChange={(value) => {
-                              void onMoveDocument(doc.id, value === "none" ? null : value);
+                              const nextFolderId = value === "none" ? null : value;
+                              void onMoveDocument(doc.id, nextFolderId);
                             }}
                           >
                             <SelectTrigger className="w-[180px]">
@@ -227,6 +236,7 @@ export const DocumentsSection = ({
                             variant="secondary"
                             size="sm"
                             className="flex items-center gap-1"
+                            onClick={() => onStudyDocument(doc.id)}
                           >
                             <ModelTrainingIcon fontSize="small" className="h-4 w-4" />
                             Study

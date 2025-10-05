@@ -10,6 +10,7 @@ const Index = lazy(() => import("./pages/Index"));
 const Auth = lazy(() => import("./pages/Auth"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const ProfilePage = lazy(() => import("./pages/profile"));
+const SummarizeDocument = lazy(() => import("./pages/study/SummarizeDocument"));
 
 const queryClient = new QueryClient();
 
@@ -31,6 +32,7 @@ const App = () => (
 							<Route path="/" element={<Index />} />
 							<Route path="/auth" element={<Auth />} />
 							<Route path="/profile" element={<ProfilePage />} />
+							<Route path="/study/:documentId" element={<SummarizeDocument />} />
 							{/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
 							<Route path="*" element={<NotFound />} />
 						</Routes>

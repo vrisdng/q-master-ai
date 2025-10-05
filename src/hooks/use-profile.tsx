@@ -54,6 +54,46 @@ export const useProfile = () => {
     loadProfile();
   }, [loadProfile]);
 
+  const setProfileState = useCallback(
+    (updater: (profile: UserProfile | null) => UserProfile | null) => {
+      setState((prev) => ({
+        ...prev,
+        profile: updater(prev.profile),
+      }));
+    },
+    [],
+  );
+
+  const setDocuments = useCallback(
+    (updater: (documents: ProfileDocument[]) => ProfileDocument[]) => {
+      setState((prev) => ({
+        ...prev,
+        documents: updater(prev.documents),
+      }));
+    },
+    [],
+  );
+
+  const setStudySets = useCallback(
+    (updater: (studySets: ProfileStudySet[]) => ProfileStudySet[]) => {
+      setState((prev) => ({
+        ...prev,
+        studySets: updater(prev.studySets),
+      }));
+    },
+    [],
+  );
+
+  const setFolders = useCallback(
+    (updater: (folders: ProfileFolder[]) => ProfileFolder[]) => {
+      setState((prev) => ({
+        ...prev,
+        folders: updater(prev.folders),
+      }));
+    },
+    [],
+  );
+
   return {
     profile: state.profile,
     documents: state.documents,
@@ -62,5 +102,9 @@ export const useProfile = () => {
     isLoading: state.isLoading,
     error: state.error,
     reload: loadProfile,
+    setProfile: setProfileState,
+    setDocuments,
+    setStudySets,
+    setFolders,
   };
 };

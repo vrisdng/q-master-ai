@@ -13,7 +13,19 @@ import { mapDocuments, mapStudySets, mapFolders, computeFolderCounts } from "@/u
 
 export const ProfilePage = () => {
   const navigate = useNavigate();
-  const { profile, documents, studySets, folders, isLoading, error, reload } = useProfile();
+  const {
+    profile,
+    documents,
+    studySets,
+    folders,
+    isLoading,
+    error,
+    reload,
+    setProfile,
+    setDocuments,
+    setStudySets,
+    setFolders,
+  } = useProfile();
 
   const {
     usernameInput,
@@ -22,26 +34,37 @@ export const ProfilePage = () => {
     setSelectedAvatar,
     isSavingProfile,
     hasChanges,
-    newFolderName,
-    setNewFolderName,
-    isCreatingFolder,
     viewingDocument,
     openDocument,
     closeDocument,
     handleReviewStudySet,
+    handleStudyDocument,
     handleCreateFolder,
     handleRenameFolder,
+    handleDeleteFolder,
     handleDeleteDocument,
     handleDeleteStudySet,
     handleRenameDocument,
     handleMoveDocument,
+    handleUpdateStudySet,
+    handleMoveStudySet,
     handleSaveProfile,
-  } = useProfileHandlers({ profile, reload, navigate });
+  } = useProfileHandlers({
+    profile,
+    documents,
+    folders,
+    studySets,
+    navigate,
+    setProfile,
+    setDocuments,
+    setFolders,
+    setStudySets,
+  });
 
   const documentItems = useMemo(() => mapDocuments(documents), [documents]);
   const studySetItems = useMemo(() => mapStudySets(studySets), [studySets]);
   const folderItems = useMemo(() => mapFolders(folders), [folders]);
-  const folderCounts = useMemo(() => computeFolderCounts(folders, documents), [folders, documents]);
+  const folderCounts = useMemo(() => computeFolderCounts(folders, documents, studySets), [folders, documents, studySets]);
 
   if (isLoading) {
     return (
@@ -89,19 +112,18 @@ export const ProfilePage = () => {
         />
 
         <FoldersSection
-          folders={folderItems}
+    folders={folderItems}
           folderCounts={folderCounts}
-          newFolderName={newFolderName}
-          onNewFolderNameChange={setNewFolderName}
           onCreateFolder={handleCreateFolder}
-          isCreatingFolder={isCreatingFolder}
           onRenameFolder={handleRenameFolder}
+          onDeleteFolder={handleDeleteFolder}
         />
 
         <DocumentsSection
           documents={documentItems}
           folders={folderItems}
           onViewDocument={openDocument}
+          onStudyDocument={handleStudyDocument}
           onDeleteDocument={handleDeleteDocument}
           onRenameDocument={handleRenameDocument}
           onMoveDocument={handleMoveDocument}
@@ -110,8 +132,11 @@ export const ProfilePage = () => {
 
         <QuestionSetsSection
           studySets={studySetItems}
+          folders={folderItems}
           onDeleteStudySet={handleDeleteStudySet}
           onReviewStudySet={handleReviewStudySet}
+          onUpdateStudySet={handleUpdateStudySet}
+          onMoveStudySet={handleMoveStudySet}
         />
       </div>
 

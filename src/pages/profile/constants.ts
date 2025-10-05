@@ -12,3 +12,13 @@ export const AVATAR_COLOR_VALUE_SET = new Set(AVATAR_COLOR_VALUES);
 export const DEFAULT_AVATAR = `color:${AVATAR_COLORS[0].value}`;
 
 export const FOLDER_NAME_REGEX = /^[A-Za-z0-9 _-]+$/;
+
+export const STUDY_SET_LABEL_COLORS = [
+  { name: "Ocean", value: "#2563EB" },
+  { name: "Forest", value: "#16A34A" },
+  { name: "Sunset", value: "#EA580C" },
+  { name: "Lavender", value: "#9333EA" },
+  { name: "Rose", value: "#DB2777" },
+  { name: "Sky", value: "#0EA5E9" },
+  { name: "Slate", value: "#64748B" },
+] as const;

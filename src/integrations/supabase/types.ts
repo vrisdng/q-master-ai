@@ -316,6 +316,9 @@ export type Database = {
         Row: {
           config: Json
           created_at: string
+          folder_id: string | null
+          label_color: string | null
+          label_text: string | null
           id: string
           owner_id: string | null
           source_document_id: string | null
@@ -328,6 +331,9 @@ export type Database = {
         Insert: {
           config?: Json
           created_at?: string
+          folder_id?: string | null
+          label_color?: string | null
+          label_text?: string | null
           id?: string
           owner_id?: string | null
           source_document_id?: string | null
@@ -340,6 +346,9 @@ export type Database = {
         Update: {
           config?: Json
           created_at?: string
+          folder_id?: string | null
+          label_color?: string | null
+          label_text?: string | null
           id?: string
           owner_id?: string | null
           source_document_id?: string | null
@@ -362,6 +371,13 @@ export type Database = {
             columns: ["source_document_id"]
             isOneToOne: false
             referencedRelation: "documents"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "study_sets_folder_id_fkey"
+            columns: ["folder_id"]
+            isOneToOne: false
+            referencedRelation: "folders"
             referencedColumns: ["id"]
           },
         ]
