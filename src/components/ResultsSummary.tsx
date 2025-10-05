@@ -1,4 +1,6 @@
+import { memo } from 'react';
 import { Award, RotateCcw, Clock, Plus } from 'lucide-react';
+import ModelTrainingIcon from '@mui/icons-material/ModelTraining';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,15 +16,17 @@ interface ResultsSummaryProps {
   score: number;
   totalMs: number;
   attempts: AttemptResult[];
-  onRetryIncorrect: () => void;
+  onRetryIncorrect: () => void | Promise<void>;
+  onViewStudySet?: () => void | Promise<void>;
   onNewTest: () => void;
 }
 
-export const ResultsSummary = ({
+export const ResultsSummary = memo(({ 
   score,
   totalMs,
   attempts,
   onRetryIncorrect,
+  onViewStudySet,
   onNewTest,
 }: ResultsSummaryProps) => {
   const totalQuestions = attempts.length;
@@ -52,6 +56,12 @@ export const ResultsSummary = ({
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-xl font-semibold">Question Summary</h3>
           <div className="flex gap-2">
+            {onViewStudySet && (
+              <Button variant="secondary" onClick={onViewStudySet} className="gap-2">
+                <ModelTrainingIcon fontSize="small" className="h-4 w-4" />
+                Review Full Set
+              </Button>
+            )}
             <Button variant="outline" onClick={onRetryIncorrect} className="gap-2">
               <RotateCcw className="h-4 w-4" />
               Retry Incorrect
@@ -100,4 +110,6 @@ export const ResultsSummary = ({
       </Card>
     </div>
   );
-};
+});
+
+ResultsSummary.displayName = 'ResultsSummary';

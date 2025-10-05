@@ -100,13 +100,14 @@ export type Database = {
           created_at: string
           description: string | null
           id: string
-          metadata: Json
-          owner_id: string
-          page_count: number | null
-          source_type: string
-          status: string
-          storage_path: string | null
-          title: string
+      metadata: Json
+      owner_id: string
+      page_count: number | null
+      folder_id: string | null
+      source_type: string
+      status: string
+      storage_path: string | null
+      title: string
           updated_at: string
         }
         Insert: {
@@ -117,6 +118,7 @@ export type Database = {
           metadata?: Json
           owner_id?: string
           page_count?: number | null
+          folder_id?: string | null
           source_type: string
           status?: string
           storage_path?: string | null
@@ -131,6 +133,7 @@ export type Database = {
           metadata?: Json
           owner_id?: string
           page_count?: number | null
+          folder_id?: string | null
           source_type?: string
           status?: string
           storage_path?: string | null
@@ -140,6 +143,45 @@ export type Database = {
         Relationships: [
           {
             foreignKeyName: "documents_owner_id_fkey"
+            columns: ["owner_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "documents_folder_id_fkey"
+            columns: ["folder_id"]
+            isOneToOne: false
+            referencedRelation: "folders"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      folders: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          owner_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          owner_id?: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          owner_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "folders_owner_id_fkey"
             columns: ["owner_id"]
             isOneToOne: false
             referencedRelation: "profiles"

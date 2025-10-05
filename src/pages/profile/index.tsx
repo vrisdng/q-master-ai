@@ -1,226 +1,31 @@
-import { useEffect, useState } from "react";
-import { useProfile } from "@/hooks/use-profile";
-import { DocumentViewer } from "@/components/DocumentViewer";
-import { Eye, FileText, Trash2, Check } from "lucide-react";
-import { Button } from "@/components/ui/button";
-import { ThemeToggle } from "@/components/ThemeToggle";
-import { deleteDocument, deleteStudySet, updateProfile } from "@/lib/api";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 
-const AVATAR_COLORS = [
-  { name: "Ocean", value: "#2563EB" },
-  { name: "Forest", value: "#16A34A" },
-  { name: "Sunset", value: "#EA580C" },
-  { name: "Lavender", value: "#9333EA" },
-  { name: "Rose", value: "#DB2777" },
-  { name: "Sky", value: "#0EA5E9" },
-] as const;
+import { DocumentViewer } from "@/components/DocumentViewer";
+import { useProfile } from "@/hooks/use-profile";
+import {
+  createFolder,
+  deleteDocument,
+  deleteStudySet,
+  moveDocumentToFolder,
+  renameDocument,
+  renameFolder,
+  updateProfile,
+  ProfileDocument,
+  ProfileStudySet,
+  ProfileFolder,
+} from "@/lib/api";
 
-const AVATAR_COLOR_VALUES = AVATAR_COLORS.map((option) => `color:${option.value}`);
-const AVATAR_COLOR_VALUE_SET = new Set(AVATAR_COLOR_VALUES);
-const DEFAULT_AVATAR = `color:${AVATAR_COLORS[0].value}`;
-
-const ProfileInfo = ({
-  username,
-  displayName,
-  avatarUrl,
-}: {
-  username: string | null;
-  displayName: string | null;
-  avatarUrl: string | null;
-}) => {
-  const initials = (displayName ?? username ?? "?").slice(0, 2).toUpperCase();
-  const colorValue = avatarUrl?.startsWith("color:") ? avatarUrl.replace("color:", "") : null;
-  const colorAvatar = colorValue && /^#[0-9A-Fa-f]{6}$/.test(colorValue) ? colorValue : null;
-
-  const renderAvatar = () => {
-    if (colorAvatar) {
-      return (
-        <div
-          className="flex h-16 w-16 items-center justify-center rounded-full text-xl font-semibold text-white shadow-soft"
-          style={{ backgroundColor: colorAvatar }}
-        >
-          {initials}
-        </div>
-      );
-    }
-
-    if (avatarUrl) {
-      return (
-        <img
-          src={avatarUrl}
-          alt={displayName ?? username ?? "User avatar"}
-          className="h-16 w-16 rounded-full object-cover"
-        />
-      );
-    }
-
-    return (
-      <div className="flex h-16 w-16 items-center justify-center rounded-full bg-primary/10 text-xl font-semibold text-primary">
-        {initials}
-      </div>
-    );
-  };
-
-  return (
-    <div className="flex items-center gap-4 rounded-lg border border-muted-foreground/10 bg-muted/40 p-4">
-      {renderAvatar()}
-      <div>
-        <p className="text-lg font-semibold">{displayName ?? username ?? "Anonymous"}</p>
-        {username && <p className="text-sm text-muted-foreground">@{username}</p>}
-      </div>
-    </div>
-  );
-};
-
-const DocumentList = ({
-  documents,
-  onViewDocument,
-  onDeleteDocument,
-}: {
-  documents: {
-    id: string;
-    title: string;
-    description: string | null;
-    status: string;
-    sourceType: string;
-    createdAt: string;
-    metadata: Record<string, unknown>;
-  }[];
-  onViewDocument: (doc: { id: string; title: string; sourceType: string; content: string }) => void;
-  onDeleteDocument: (documentId: string) => void;
-}) => {
-  if (!documents.length) {
-    return (
-      <div className="rounded-lg border border-dashed border-muted-foreground/30 p-6 text-center text-sm text-muted-foreground">
-        No documents uploaded yet.
-      </div>
-    );
-  }
-
-  const getPreviewText = (metadata: Record<string, unknown>) => {
-    const content = (metadata.content as string) || "";
-    return content.slice(0, 200) + (content.length > 200 ? "..." : "");
-  };
-
-  return (
-    <ul className="space-y-3">
-      {documents.map((doc) => {
-        const content = (doc.metadata.content as string) || "";
-        return (
-          <li key={doc.id} className="rounded-lg border border-muted-foreground/10 bg-card p-4 shadow-sm hover:shadow-md transition-shadow">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 mb-2">
-                  <FileText className="h-4 w-4 text-primary shrink-0" />
-                  <p className="font-medium truncate">{doc.title}</p>
-                </div>
-                {doc.description && <p className="text-sm text-muted-foreground mb-2">{doc.description}</p>}
-                <div className="bg-muted/50 rounded p-2 text-xs text-muted-foreground font-mono mb-2">
-                  {getPreviewText(doc.metadata)}
-                </div>
-                <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                  <span className="rounded-full bg-muted px-2 py-0.5 uppercase tracking-wide">
-                    {doc.status}
-                  </span>
-                  <span className="uppercase">{doc.sourceType}</span>
-                  <span>Uploaded {new Date(doc.createdAt).toLocaleDateString()}</span>
-                </div>
-              </div>
-              <div className="flex gap-2 self-end sm:self-start">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => onViewDocument({ id: doc.id, title: doc.title, sourceType: doc.sourceType, content })}
-                  className="flex items-center gap-1"
-                >
-                  <Eye className="h-4 w-4" />
-                  View
-                </Button>
-                <Button
-                  variant="destructive"
-                  size="sm"
-                  onClick={() => onDeleteDocument(doc.id)}
-                  className="flex items-center gap-1"
-                >
-                  <Trash2 className="h-4 w-4" />
-                  Delete
-                </Button>
-              </div>
-            </div>
-          </li>
-        );
-      })}
-    </ul>
-  );
-};
-
-const StudySetList = ({
-  studySets,
-  onDeleteStudySet,
-}: {
-  studySets: {
-    id: string;
-    title: string;
-    createdAt: string;
-    topics: string[] | null;
-    text: string;
-  }[];
-  onDeleteStudySet: (studySetId: string) => void;
-}) => {
-  if (!studySets.length) {
-    return (
-      <div className="rounded-lg border border-dashed border-muted-foreground/30 p-6 text-center text-sm text-muted-foreground">
-        No question sets created yet.
-      </div>
-    );
-  }
-
-  return (
-    <ul className="space-y-3">
-      {studySets.map((set) => {
-        const preview = set.text.slice(0, 200) + (set.text.length > 200 ? "…" : "");
-
-        return (
-          <li key={set.id} className="rounded-lg border border-muted-foreground/10 bg-card p-4 shadow-sm space-y-3">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-              <div>
-                <p className="font-medium">{set.title}</p>
-                <p className="text-xs text-muted-foreground">Created {new Date(set.createdAt).toLocaleString()}</p>
-              </div>
-              <Button
-                variant="destructive"
-                size="sm"
-                onClick={() => onDeleteStudySet(set.id)}
-                className="flex items-center gap-1 self-end sm:self-start"
-              >
-                <Trash2 className="h-4 w-4" />
-                Delete
-              </Button>
-            </div>
-            <div className="bg-muted/50 rounded p-2 text-xs text-muted-foreground font-mono whitespace-pre-wrap">
-              {preview}
-            </div>
-            {set.topics && set.topics.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {set.topics.map((topic) => (
-                  <span key={topic} className="rounded-full bg-muted px-2 py-1 text-xs text-muted-foreground">
-                    {topic}
-                  </span>
-                ))}
-              </div>
-            )}
-          </li>
-        );
-      })}
-    </ul>
-  );
-};
+import { ProfileCard } from "./components/ProfileCard";
+import { FoldersSection } from "./components/FoldersSection";
+import { DocumentsSection } from "./components/DocumentsSection";
+import { QuestionSetsSection } from "./components/QuestionSetsSection";
+import { AVATAR_COLOR_VALUE_SET, DEFAULT_AVATAR, FOLDER_NAME_REGEX } from "./constants";
 
 export const ProfilePage = () => {
-  const { profile, documents, studySets, isLoading, error, reload } = useProfile();
+  const navigate = useNavigate();
+  const { profile, documents, studySets, folders, isLoading, error, reload } = useProfile();
   const [viewingDocument, setViewingDocument] = useState<{
     id: string;
     title: string;
@@ -230,6 +35,8 @@ export const ProfilePage = () => {
   const [usernameInput, setUsernameInput] = useState("");
   const [selectedAvatar, setSelectedAvatar] = useState<string>(DEFAULT_AVATAR);
   const [isSavingProfile, setIsSavingProfile] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [isCreatingFolder, setIsCreatingFolder] = useState(false);
 
   useEffect(() => {
     if (!profile) return;
@@ -238,7 +45,68 @@ export const ProfilePage = () => {
     setSelectedAvatar(AVATAR_COLOR_VALUE_SET.has(candidate) ? candidate : DEFAULT_AVATAR);
   }, [profile]);
 
-  const handleDeleteDocument = async (documentId: string) => {
+  const handleReviewStudySet = useCallback((studySetId: string) => {
+    navigate('/', { state: { studySetId } });
+  }, [navigate]);
+
+  const handleCreateFolder = useCallback(async () => {
+    const trimmed = newFolderName.trim();
+
+    if (!trimmed) {
+      toast.error("Folder name cannot be empty");
+      return;
+    }
+
+    if (!FOLDER_NAME_REGEX.test(trimmed)) {
+      toast.error("Folder name can include letters, numbers, spaces, hyphens, and underscores only");
+      return;
+    }
+
+    setIsCreatingFolder(true);
+    try {
+      await createFolder(trimmed);
+      toast.success("Folder created");
+      setNewFolderName("");
+      await reload();
+    } catch (err) {
+      console.error("Failed to create folder", err);
+      toast.error(err instanceof Error ? err.message : "Failed to create folder");
+    } finally {
+      setIsCreatingFolder(false);
+    }
+  }, [newFolderName, reload]);
+
+  const handleRenameFolder = useCallback(async (folderId: string, currentName: string) => {
+    const next = window.prompt("Rename folder", currentName);
+    if (next === null) return;
+
+    const trimmed = next.trim();
+    if (!trimmed) {
+      toast.error("Folder name cannot be empty");
+      return;
+    }
+
+    if (trimmed === currentName) {
+      toast.info("No changes detected");
+      return;
+    }
+
+    if (!FOLDER_NAME_REGEX.test(trimmed)) {
+      toast.error("Folder name can include letters, numbers, spaces, hyphens, and underscores only");
+      return;
+    }
+
+    try {
+      await renameFolder(folderId, trimmed);
+      toast.success("Folder renamed");
+      await reload();
+    } catch (err) {
+      console.error("Failed to rename folder", err);
+      toast.error(err instanceof Error ? err.message : "Failed to rename folder");
+    }
+  }, [reload]);
+
+  const handleDeleteDocument = useCallback(async (documentId: string) => {
     const confirmed = window.confirm("Delete this document? This action cannot be undone.");
     if (!confirmed) return;
 
@@ -250,9 +118,9 @@ export const ProfilePage = () => {
       console.error("Failed to delete document", err);
       toast.error(err instanceof Error ? err.message : "Failed to delete document");
     }
-  };
+  }, [reload]);
 
-  const handleDeleteStudySet = async (studySetId: string) => {
+  const handleDeleteStudySet = useCallback(async (studySetId: string) => {
     const confirmed = window.confirm("Delete this study set and its questions?");
     if (!confirmed) return;
 
@@ -264,9 +132,38 @@ export const ProfilePage = () => {
       console.error("Failed to delete study set", err);
       toast.error(err instanceof Error ? err.message : "Failed to delete study set");
     }
-  };
+  }, [reload]);
 
-  const handleSaveProfile = async () => {
+  const handleRenameDocument = useCallback(async (documentId: string, newTitle: string) => {
+    const trimmed = newTitle.trim();
+    if (!trimmed) {
+      toast.error("Document name cannot be empty");
+      return;
+    }
+
+    try {
+      await renameDocument(documentId, trimmed);
+      toast.success("Document renamed");
+      await reload();
+    } catch (err) {
+      console.error("Failed to rename document", err);
+      toast.error(err instanceof Error ? err.message : "Failed to rename document");
+      throw err;
+    }
+  }, [reload]);
+
+  const handleMoveDocument = useCallback(async (documentId: string, folderId: string | null) => {
+    try {
+      await moveDocumentToFolder(documentId, folderId);
+      toast.success("Document updated");
+      await reload();
+    } catch (err) {
+      console.error("Failed to move document", err);
+      toast.error(err instanceof Error ? err.message : "Failed to update document");
+    }
+  }, [reload]);
+
+  const handleSaveProfile = useCallback(async () => {
     const normalizedUsername = usernameInput.trim().toLowerCase();
     const currentAvatar = AVATAR_COLOR_VALUE_SET.has(profile?.avatarUrl ?? "")
       ? (profile?.avatarUrl as string)
@@ -319,7 +216,24 @@ export const ProfilePage = () => {
     } finally {
       setIsSavingProfile(false);
     }
-  };
+  }, [usernameInput, profile?.avatarUrl, profile?.username, selectedAvatar, reload]);
+
+  const documentItems = useMemo(
+    () => mapDocuments(documents),
+    [documents]
+  );
+
+  const studySetItems = useMemo(
+    () => mapStudySets(studySets),
+    [studySets]
+  );
+
+  const folderItems = useMemo(
+    () => mapFolders(folders),
+    [folders]
+  );
+
+  const folderCounts = useMemo(() => computeFolderCounts(folders, documents), [folders, documents]);
 
   if (isLoading) {
     return (
@@ -362,118 +276,42 @@ export const ProfilePage = () => {
   return (
     <>
       <div className="mx-auto max-w-5xl space-y-8 p-6">
-        <section>
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold">Your Profile</h1>
-              <p className="text-sm text-muted-foreground">Manage your account and review your study assets.</p>
-            </div>
-            <ThemeToggle />
-          </div>
-          <div className="mt-4">
-            <ProfileInfo
-              username={profile.username}
-              displayName={profile.displayName}
-              avatarUrl={profile.avatarUrl}
-            />
-          </div>
-        </section>
+        <ProfileCard
+          profile={profile}
+          usernameInput={usernameInput}
+          onUsernameChange={setUsernameInput}
+          selectedAvatar={selectedAvatar}
+          onAvatarChange={setSelectedAvatar}
+          onSave={handleSaveProfile}
+          isSaving={isSavingProfile}
+          hasChanges={hasChanges}
+        />
 
-        <section className="space-y-4">
-          <h2 className="text-xl font-semibold">Account Settings</h2>
-          <div className="space-y-6 rounded-lg border border-muted-foreground/10 bg-card p-6 shadow-sm">
-            <div className="space-y-2">
-              <Label htmlFor="username">Username</Label>
-              <Input
-                id="username"
-                value={usernameInput}
-                onChange={(event) => setUsernameInput(event.target.value)}
-                placeholder="yourname"
-                autoComplete="off"
-              />
-              <p className="text-xs text-muted-foreground">
-                Between 3 and 20 characters. Use lowercase letters, numbers, or underscores.
-              </p>
-            </div>
+        <FoldersSection
+          folders={folderItems}
+          folderCounts={folderCounts}
+          newFolderName={newFolderName}
+          onNewFolderNameChange={setNewFolderName}
+          onCreateFolder={handleCreateFolder}
+          isCreatingFolder={isCreatingFolder}
+          onRenameFolder={handleRenameFolder}
+        />
 
-            <div className="space-y-3">
-              <Label>Avatar Color</Label>
-              <div className="flex flex-wrap gap-4">
-                {AVATAR_COLORS.map(({ name, value }) => {
-                  const optionValue = `color:${value}`;
-                  const isActive = selectedAvatar === optionValue;
-                  return (
-                    <button
-                      key={value}
-                      type="button"
-                      onClick={() => setSelectedAvatar(optionValue)}
-                      className="group flex flex-col items-center gap-2 focus:outline-none"
-                    >
-                      <span
-                        className={`flex h-12 w-12 items-center justify-center rounded-full border-2 transition-shadow ${isActive ? 'border-primary ring-2 ring-primary/40' : 'border-border hover:border-primary/70'}`}
-                        style={{ backgroundColor: value }}
-                      >
-                        {isActive && <Check className="h-5 w-5 text-white" />}
-                      </span>
-                      <span className="text-xs text-muted-foreground">{name}</span>
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
+        <DocumentsSection
+          documents={documentItems}
+          folders={folderItems}
+          onViewDocument={setViewingDocument}
+          onDeleteDocument={handleDeleteDocument}
+          onRenameDocument={handleRenameDocument}
+          onMoveDocument={handleMoveDocument}
+          onRefresh={reload}
+        />
 
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                onClick={handleSaveProfile}
-                disabled={isSavingProfile || !hasChanges}
-                className="gap-2"
-              >
-                {isSavingProfile ? "Saving..." : "Save Changes"}
-              </Button>
-            </div>
-          </div>
-        </section>
-
-        <section className="space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-xl font-semibold">Documents</h2>
-            <button
-              type="button"
-              onClick={reload}
-              className="text-sm font-medium text-primary hover:underline"
-            >
-              Refresh
-            </button>
-          </div>
-          <DocumentList
-            documents={documents.map((doc) => ({
-              id: doc.id,
-              title: doc.title,
-              description: doc.description,
-              status: doc.status,
-              sourceType: doc.sourceType,
-              createdAt: doc.createdAt,
-              metadata: doc.metadata,
-            }))}
-            onViewDocument={setViewingDocument}
-            onDeleteDocument={handleDeleteDocument}
-          />
-        </section>
-
-        <section className="space-y-4">
-          <h2 className="text-xl font-semibold">Question Sets</h2>
-          <StudySetList
-            studySets={studySets.map((set) => ({
-              id: set.id,
-              title: set.title,
-              createdAt: set.createdAt,
-              topics: set.topics,
-              text: set.text,
-            }))}
-            onDeleteStudySet={handleDeleteStudySet}
-          />
-        </section>
+        <QuestionSetsSection
+          studySets={studySetItems}
+          onDeleteStudySet={handleDeleteStudySet}
+          onReviewStudySet={handleReviewStudySet}
+        />
       </div>
 
       {viewingDocument && (
@@ -487,6 +325,44 @@ export const ProfilePage = () => {
       )}
     </>
   );
+};
+
+const mapDocuments = (documents: ProfileDocument[]) =>
+  documents.map((doc) => ({
+    id: doc.id,
+    title: doc.title,
+    description: doc.description,
+    status: doc.status,
+    sourceType: doc.sourceType,
+    createdAt: doc.createdAt,
+    metadata: doc.metadata,
+    folderId: doc.folderId,
+  }));
+
+const mapStudySets = (studySets: ProfileStudySet[]) =>
+  studySets.map((set) => ({
+    id: set.id,
+    title: set.title,
+    createdAt: set.createdAt,
+    topics: set.topics,
+    text: set.text,
+  }));
+
+const mapFolders = (folders: ProfileFolder[]) =>
+  folders.map((folder) => ({
+    id: folder.id,
+    name: folder.name,
+  }));
+
+const computeFolderCounts = (folders: ProfileFolder[], documents: ProfileDocument[]) => {
+  const counts = new Map<string, number>();
+  folders.forEach((folder) => counts.set(folder.id, 0));
+  documents.forEach((doc) => {
+    if (doc.folderId) {
+      counts.set(doc.folderId, (counts.get(doc.folderId) ?? 0) + 1);
+    }
+  });
+  return counts;
 };
 
 export default ProfilePage;

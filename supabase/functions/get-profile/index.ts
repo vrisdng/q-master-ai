@@ -30,6 +30,15 @@ type DocumentRow = {
   page_count: number | null;
   content_sha: string | null;
   metadata: Json;
+  folder_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type FolderRow = {
+  id: string;
+  owner_id: string;
+  name: string;
   created_at: string;
   updated_at: string;
 };
@@ -154,6 +163,7 @@ serve(async (req) => {
           "page_count",
           "content_sha",
           "metadata",
+          "folder_id",
           "created_at",
           "updated_at",
         ].join(","),
@@ -192,6 +202,28 @@ serve(async (req) => {
       throw studySetsError;
     }
 
+    let folders: FolderRow[] = [];
+    const { data: foldersData, error: foldersError } = await supabase
+      .from("folders")
+      .select("id, owner_id, name, created_at, updated_at")
+      .eq("owner_id", userId)
+      .order("created_at", { ascending: true })
+      .returns<FolderRow[]>();
+
+    if (foldersError) {
+      // If the folders table has not been created yet, surface a warning but allow the rest of the
+      // profile payload to load so the UI continues to function.
+      const errorMessage = typeof foldersError.message === "string" ? foldersError.message : "";
+      if (errorMessage.includes("relation") && errorMessage.includes("folders")) {
+        console.warn("Folders table unavailable; returning empty folders list.", foldersError);
+      } else {
+        console.error("Folders fetch error", foldersError);
+        throw foldersError;
+      }
+    } else if (foldersData) {
+      folders = foldersData;
+    }
+
     const responsePayload = {
       profile: {
         id: profile.id,
@@ -213,8 +245,16 @@ serve(async (req) => {
         pageCount: doc.page_count,
         contentSha: doc.content_sha,
         metadata: doc.metadata,
+        folderId: doc.folder_id,
         createdAt: doc.created_at,
         updatedAt: doc.updated_at,
+      })),
+      folders: folders.map((folder) => ({
+        id: folder.id,
+        ownerId: folder.owner_id,
+        name: folder.name,
+        createdAt: folder.created_at,
+        updatedAt: folder.updated_at,
       })),
       studySets: (studySets ?? []).map((set) => ({
         id: set.id,

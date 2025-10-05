@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useState, useEffect, useCallback, useMemo } from 'react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { BookOpen, Sparkles, FileText, Link as LinkIcon, LogOut, User } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
@@ -31,8 +31,32 @@ type GenerationStep = {
   status: 'pending' | 'active' | 'completed' | 'error';
 };
 
+type AttemptSummary = {
+  stem: string;
+  chosen: string;
+  correct: string;
+  isCorrect: boolean;
+};
+
+const normalizeSourceUrl = (rawUrl?: string) => {
+  if (!rawUrl) return undefined;
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return undefined;
+
+  const withProtocol = /^https?:\/\//i.test(trimmed)
+    ? trimmed
+    : `https://${trimmed}`;
+
+  try {
+    return new URL(withProtocol).toString();
+  } catch {
+    throw new Error('Please enter a valid URL (e.g. https://example.com).');
+  }
+};
+
 const Index = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, profile, loading, signOut } = useAuth();
   const [stage, setStage] = useState<Stage>('upload');
   const [sourceText, setSourceText] = useState('');
@@ -45,6 +69,7 @@ const Index = () => {
   const [studySetId, setStudySetId] = useState<string>('');
   const [sessionId, setSessionId] = useState<string>('');
   const [questions, setQuestions] = useState<MCQItem[]>([]);
+  const [allQuestions, setAllQuestions] = useState<MCQItem[]>([]);
   const [generationSteps, setGenerationSteps] = useState<GenerationStep[]>([
     { label: 'Parsing content', status: 'pending' },
     { label: 'Chunking text', status: 'pending' },
@@ -67,36 +92,71 @@ const Index = () => {
     }
   }, [user, loading, navigate]);
 
-  if (loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <Sparkles className="h-8 w-8 mx-auto mb-4 text-primary animate-pulse" />
-          <p className="text-muted-foreground">Loading...</p>
-        </div>
-      </div>
-    );
-  }
+  const loadStudySetById = useCallback(async (setId: string) => {
+    try {
+      toast.info('Loading study set...');
 
-  if (!user) {
-    return null;
-  }
+      const { studySet, items } = await fetchStudySet(setId);
+
+      if (!items.length) {
+        toast.error('Study set has no questions.');
+        return;
+      }
+
+      setStudySetId(setId);
+      setSourceType(studySet.sourceType);
+      setSourceUrl(studySet.sourceUrl ?? '');
+      setSourceText(studySet.text);
+      setPreviewText(studySet.text);
+      setTopics(studySet.topics ?? []);
+      setDocumentId(studySet.sourceDocumentId ?? '');
+      setQuestions(items);
+      setAllQuestions(items);
+      setAttempts([]);
+      setCurrentQuestionIndex(0);
+
+      const newSessionId = await createQuizSession(
+        setId,
+        items.map(item => item.id)
+      );
+
+      setSessionId(newSessionId);
+      setSessionStartTime(Date.now());
+      setStage('quiz');
+      toast.success(`Loaded ${items.length} questions`);
+    } catch (error) {
+      console.error('Failed to load study set:', error);
+      const message = error instanceof Error ? error.message : 'Failed to load study set. Please try again.';
+      toast.error(message);
+    } finally {
+      navigate('.', { replace: true });
+    }
+  }, [navigate]);
+
+  useEffect(() => {
+    const state = location.state as { studySetId?: string } | null;
+    if (state?.studySetId) {
+      loadStudySetById(state.studySetId);
+    }
+  }, [location.state, loadStudySetById]);
 
   const handleParse = async (data: { sourceType: string; text: string; sourceUrl?: string }) => {
     try {
       toast.info('Processing your content...');
+
+      const normalizedUrl = normalizeSourceUrl(data.sourceUrl);
       
       // Call parse-content edge function
       const parseResult = await parseContent(
         data.sourceType,
         data.text,
-        data.sourceUrl
+        normalizedUrl
       );
       
       setSourceType(data.sourceType);
       setSourceText(parseResult.text);
       setPreviewText(parseResult.text);
-      setSourceUrl(data.sourceUrl || '');
+      setSourceUrl(normalizedUrl || '');
       
       // Extract topics from comma-separated string
       const extractedTopics = parseResult.topics
@@ -106,14 +166,14 @@ const Index = () => {
       setTopics(extractedTopics);
 
       // Save document to database
-      const docTitle = data.sourceUrl 
-        ? `Document from ${new URL(data.sourceUrl).hostname}` 
+      const docTitle = normalizedUrl 
+        ? `Document from ${new URL(normalizedUrl).hostname}` 
         : `${data.sourceType.toUpperCase()} - ${new Date().toLocaleDateString()}`;
       
       const docId = await createDocument({
         title: docTitle,
         sourceType: data.sourceType,
-        sourceUrl: data.sourceUrl,
+        sourceUrl: normalizedUrl,
         content: parseResult.text,
       });
       setDocumentId(docId);
@@ -122,7 +182,10 @@ const Index = () => {
       toast.success('Content parsed and saved successfully');
     } catch (error) {
       console.error('Parse error:', error);
-      toast.error('Failed to parse content. Please try again.');
+      const message = error instanceof Error
+        ? error.message
+        : 'Failed to parse content. Please try again.';
+      toast.error(message);
     }
   };
 
@@ -173,6 +236,9 @@ const Index = () => {
       }
       
       setQuestions(items);
+      setAllQuestions(items);
+      setAttempts([]);
+      setCurrentQuestionIndex(0);
       updateGenerationStep(4, 'completed');
       
       // Create quiz session
@@ -248,7 +314,23 @@ const Index = () => {
     setStage('results');
   };
 
-  const handleRetryIncorrect = () => {
+  const attemptSummaries = useMemo<AttemptSummary[]>(() => {
+    if (!attempts.length) return [];
+
+    const questionMap = new Map(questions.map(q => [q.id, q]));
+
+    return attempts.map(attempt => {
+      const question = questionMap.get(attempt.itemId);
+      return {
+        stem: question?.stem || '',
+        chosen: attempt.response,
+        correct: question?.answer_key || '',
+        isCorrect: attempt.isCorrect,
+      };
+    });
+  }, [attempts, questions]);
+
+  const handleRetryIncorrect = useCallback(async () => {
     const incorrectQuestions = attempts
       .filter(a => !a.isCorrect)
       .map(a => questions.find(q => q.id === a.itemId))
@@ -259,18 +341,68 @@ const Index = () => {
       return;
     }
     
-    setQuestions(incorrectQuestions);
-    setCurrentQuestionIndex(0);
-    setAttempts([]);
-    setSessionStartTime(Date.now());
-    setStage('quiz');
-    toast.info(`Retrying ${incorrectQuestions.length} questions`);
-  };
+    try {
+      if (studySetId) {
+        const newSessionId = await createQuizSession(
+          studySetId,
+          incorrectQuestions.map(item => item.id)
+        );
+        setSessionId(newSessionId);
+      }
 
-  const handleNewTest = () => {
+      setQuestions(incorrectQuestions);
+      setCurrentQuestionIndex(0);
+      setAttempts([]);
+      setSessionStartTime(Date.now());
+      setStage('quiz');
+      toast.info(`Retrying ${incorrectQuestions.length} questions`);
+    } catch (error) {
+      console.error('Failed to start retry session:', error);
+      toast.error('Could not start retry session. Please try again.');
+    }
+  }, [attempts, questions, studySetId]);
+
+  const handleViewStudySet = useCallback(async () => {
+    if (!studySetId) {
+      toast.error('No study set available to review.');
+      return;
+    }
+
+    const baseQuestions = allQuestions.length > 0 ? allQuestions : questions;
+
+    if (baseQuestions.length === 0) {
+      toast.error('Study set has no questions to review.');
+      return;
+    }
+
+    try {
+      const newSessionId = await createQuizSession(
+        studySetId,
+        baseQuestions.map(item => item.id)
+      );
+
+      setSessionId(newSessionId);
+      setQuestions([...baseQuestions]);
+      setAttempts([]);
+      setCurrentQuestionIndex(0);
+      setSessionStartTime(Date.now());
+      setStage('quiz');
+      toast.info('Study set ready for another run');
+    } catch (error) {
+      console.error('Failed to reload study set:', error);
+      const message = error instanceof Error ? error.message : 'Failed to reload study set. Please try again.';
+      toast.error(message);
+    }
+  }, [studySetId, allQuestions, questions]);
+
+  const handleNewTest = useCallback(() => {
     setQuestions([]);
     setCurrentQuestionIndex(0);
     setAttempts([]);
+    setAllQuestions([]);
+    setStudySetId('');
+    setSessionId('');
+    setSessionStartTime(0);
     setGenerationSteps([
       { label: 'Parsing content', status: 'pending' },
       { label: 'Chunking text', status: 'pending' },
@@ -280,7 +412,22 @@ const Index = () => {
     ]);
     setStage('config');
     toast.info('Configure a new test set');
-  };
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <Sparkles className="h-8 w-8 mx-auto mb-4 text-primary animate-pulse" />
+          <p className="text-muted-foreground">Loading...</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) {
+    return null;
+  }
 
   const currentQuestion = questions[currentQuestionIndex];
   const correctCount = attempts.filter(a => a.isCorrect).length;
@@ -427,16 +574,9 @@ const Index = () => {
           <ResultsSummary
             score={score}
             totalMs={totalMs}
-            attempts={attempts.map(attempt => {
-              const question = questions.find(q => q.id === attempt.itemId);
-              return {
-                stem: question?.stem || '',
-                chosen: attempt.response,
-                correct: question?.answer_key || '',
-                isCorrect: attempt.isCorrect,
-              };
-            })}
+            attempts={attemptSummaries}
             onRetryIncorrect={handleRetryIncorrect}
+            onViewStudySet={handleViewStudySet}
             onNewTest={handleNewTest}
           />
         )}

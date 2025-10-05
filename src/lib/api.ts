@@ -1,4 +1,5 @@
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 
 export interface ParseResponse {
   text: string;
@@ -53,6 +54,7 @@ export interface ProfileDocument {
   pageCount: number | null;
   contentSha: string | null;
   metadata: Record<string, unknown>;
+  folderId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -70,10 +72,19 @@ export interface ProfileStudySet {
   text: string;
 }
 
+export interface ProfileFolder {
+  id: string;
+  ownerId: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface ProfileResponse {
   profile: UserProfile;
   documents: ProfileDocument[];
   studySets: ProfileStudySet[];
+  folders: ProfileFolder[];
 }
 
 /**
@@ -99,6 +110,7 @@ export const createDocument = async (params: {
   title: string;
   sourceType: string;
   sourceUrl?: string;
+  folderId?: string | null;
   content: string;
 }): Promise<string> => {
   const { data: { user } } = await supabase.auth.getUser();
@@ -111,8 +123,9 @@ export const createDocument = async (params: {
       source_type: params.sourceType,
       source_url: params.sourceUrl,
       owner_id: user.id,
-      status: "processed",
+      status: "ready",
       metadata: { content: params.content },
+      folder_id: params.folderId ?? null,
     })
     .select("id")
     .single();
@@ -319,7 +332,79 @@ export const fetchProfile = async (): Promise<ProfileResponse> => {
   if (error) throw error;
   if (!data) throw new Error("No profile data returned");
 
+  if (!Array.isArray(data.folders)) {
+    const { data: userData } = await supabase.auth.getUser();
+    const userId = userData?.user?.id;
+
+    if (userId) {
+      const { data: fallbackFolders, error: fallbackError } = await supabase
+        .from("folders")
+        .select("id, owner_id, name, created_at, updated_at")
+        .eq("owner_id", userId)
+        .order("created_at", { ascending: true })
+        .returns<Database["public"]["Tables"]["folders"]["Row"][]>();
+
+      if (!fallbackError && fallbackFolders) {
+        data.folders = fallbackFolders.map((folder) => ({
+          id: folder.id,
+          ownerId: folder.owner_id,
+          name: folder.name,
+          createdAt: folder.created_at,
+          updatedAt: folder.updated_at,
+        }));
+      } else {
+        data.folders = [];
+      }
+    } else {
+      data.folders = [];
+    }
+  }
+
   return data;
+};
+
+export const createFolder = async (name: string): Promise<string> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("User not authenticated");
+
+  const { data, error } = await (supabase as any)
+    .from("folders")
+    .insert({
+      name,
+      owner_id: user.id,
+    })
+    .select("id")
+    .single();
+
+  if (error) throw error;
+  return data.id;
+};
+
+export const renameFolder = async (folderId: string, name: string): Promise<void> => {
+  const { error } = await supabase
+    .from("folders")
+    .update({ name })
+    .eq("id", folderId);
+
+  if (error) throw error;
+};
+
+export const moveDocumentToFolder = async (documentId: string, folderId: string | null): Promise<void> => {
+  const { error } = await supabase
+    .from("documents")
+    .update({ folder_id: folderId })
+    .eq("id", documentId);
+
+  if (error) throw error;
+};
+
+export const renameDocument = async (documentId: string, title: string): Promise<void> => {
+  const { error } = await supabase
+    .from("documents")
+    .update({ title })
+    .eq("id", documentId);
+
+  if (error) throw error;
 };
 
 export const deleteDocument = async (documentId: string): Promise<void> => {
