@@ -131,6 +131,21 @@ serve(async (req) => {
 
     const userId = user.id;
 
+    const { data: roleRecord, error: roleError } = await supabase
+      .from("user_roles")
+      .select("role")
+      .eq("user_id", userId)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle<{ role: "guest" | "user" | "admin" }>();
+
+    if (roleError) {
+      console.error("Role lookup error", roleError);
+      throw roleError;
+    }
+
+    const role = roleRecord?.role ?? "user";
+
     const { data: profile, error: profileError } = await supabase
       .from("profiles")
       .select("id, username, display_name, avatar_url, metadata, created_at, updated_at")
@@ -239,6 +254,7 @@ serve(async (req) => {
         metadata: profile.metadata,
         createdAt: profile.created_at,
         updatedAt: profile.updated_at,
+        role,
       },
       documents: (documents ?? []).map((doc) => ({
         id: doc.id,
@@ -277,6 +293,11 @@ serve(async (req) => {
         labelText: set.label_text,
         labelColor: set.label_color,
       })),
+      capabilities: {
+        role,
+        canUseStudyModes: role !== "guest",
+        quotas: role === "guest" ? { documents: 2, studySets: 2 } : null,
+      },
     };
 
     return new Response(

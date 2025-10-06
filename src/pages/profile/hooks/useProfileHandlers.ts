@@ -18,7 +18,7 @@ import {
   type ProfileFolder,
   type ProfileStudySet,
 } from "@/lib/api";
-import { AVATAR_COLOR_VALUE_SET, DEFAULT_AVATAR, FOLDER_NAME_REGEX } from "../constants";
+import { AVATAR_COLOR_VALUE_SET, DEFAULT_AVATAR, FOLDER_NAME_REGEX, type StudyMode } from "../constants";
 
 interface UseProfileHandlersParams {
   profile: UserProfile | null;
@@ -68,8 +68,24 @@ export const useProfileHandlers = ({
   );
 
   const handleStudyDocument = useCallback(
-    (documentId: string) => {
-      navigate(`/study/${documentId}`);
+    (documentId: string, mode: StudyMode) => {
+      switch (mode) {
+        case "summary":
+          navigate(`/study/${documentId}`);
+          break;
+        case "elaboration":
+          navigate(`/study/${documentId}/elaboration`);
+          break;
+        case "self-explanation":
+          navigate(`/study/${documentId}/self-explanation`);
+          break;
+        case "feynman":
+          navigate(`/study/${documentId}/feynman`);
+          break;
+        default:
+          navigate(`/study/${documentId}`);
+          break;
+      }
     },
     [navigate],
   );

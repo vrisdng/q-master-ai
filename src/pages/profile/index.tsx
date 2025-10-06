@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 
 import { DocumentViewer } from "@/components/DocumentViewer";
 import { useProfile } from "@/hooks/use-profile";
+import GuestUpgradeCallout from "@/components/GuestUpgradeCallout";
 
 import { ProfileCard } from "./components/ProfileCard";
 import { FoldersSection } from "./components/FoldersSection";
@@ -18,6 +19,7 @@ export const ProfilePage = () => {
     documents,
     studySets,
     folders,
+    capabilities,
     isLoading,
     error,
     reload,
@@ -65,6 +67,7 @@ export const ProfilePage = () => {
   const studySetItems = useMemo(() => mapStudySets(studySets), [studySets]);
   const folderItems = useMemo(() => mapFolders(folders), [folders]);
   const folderCounts = useMemo(() => computeFolderCounts(folders, documents, studySets), [folders, documents, studySets]);
+  const isGuest = capabilities?.role === "guest";
 
   if (isLoading) {
     return (
@@ -100,16 +103,22 @@ export const ProfilePage = () => {
   return (
     <>
       <div className="mx-auto max-w-5xl space-y-8 p-6">
-        <ProfileCard
-          profile={profile}
-          usernameInput={usernameInput}
-          onUsernameChange={setUsernameInput}
-          selectedAvatar={selectedAvatar}
-          onAvatarChange={setSelectedAvatar}
-          onSave={handleSaveProfile}
-          isSaving={isSavingProfile}
-          hasChanges={hasChanges}
-        />
+      <ProfileCard
+        profile={profile}
+        usernameInput={usernameInput}
+        onUsernameChange={setUsernameInput}
+        selectedAvatar={selectedAvatar}
+        onAvatarChange={setSelectedAvatar}
+        onSave={handleSaveProfile}
+        isSaving={isSavingProfile}
+        hasChanges={hasChanges}
+      />
+
+        {isGuest && (
+          <GuestUpgradeCallout
+            description="Guest profiles can explore uploaded content and generate up to two study sets. Create your account to unlock unlimited uploads, study modes, and progress tracking."
+          />
+        )}
 
         <FoldersSection
     folders={folderItems}
@@ -128,6 +137,8 @@ export const ProfilePage = () => {
           onRenameDocument={handleRenameDocument}
           onMoveDocument={handleMoveDocument}
           onRefresh={reload}
+          canUseStudyModes={capabilities?.canUseStudyModes ?? true}
+          onUpgradeRequest={() => navigate('/auth')}
         />
 
         <QuestionSetsSection

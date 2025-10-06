@@ -1,11 +1,21 @@
 import { useCallback, useMemo, useState } from "react";
-import { Eye, FileText, Pencil, Trash2 } from "lucide-react";
+import { Eye, FileText, Pencil, Trash2, Sparkles, PenSquare, MessageCircle, Atom } from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import ModelTrainingIcon from "@mui/icons-material/ModelTraining";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { toast } from "sonner";
+import { STUDY_MODES, type StudyMode } from "../constants";
+import GuestUpgradeCallout from "@/components/GuestUpgradeCallout";
+
+const STUDY_MODE_ICONS: Record<StudyMode, LucideIcon> = {
+  summary: Sparkles,
+  elaboration: PenSquare,
+  "self-explanation": MessageCircle,
+  feynman: Atom,
+};
 
 interface Document {
   id: string;
@@ -27,11 +37,13 @@ interface DocumentsSectionProps {
   documents: Document[];
   folders: FolderOption[];
   onViewDocument: (doc: { id: string; title: string; sourceType: string; content: string }) => void;
-  onStudyDocument: (documentId: string) => void;
+  onStudyDocument: (documentId: string, mode: StudyMode) => void;
   onDeleteDocument: (documentId: string) => void | Promise<void>;
   onRenameDocument: (documentId: string, newTitle: string) => void | Promise<void>;
   onMoveDocument: (documentId: string, folderId: string | null) => void | Promise<void>;
   onRefresh?: () => void | Promise<void>;
+  canUseStudyModes: boolean;
+  onUpgradeRequest?: () => void;
 }
 
 interface Section {
@@ -49,10 +61,13 @@ export const DocumentsSection = ({
   onRenameDocument,
   onMoveDocument,
   onRefresh,
+  canUseStudyModes,
+  onUpgradeRequest,
 }: DocumentsSectionProps) => {
   const [renameTarget, setRenameTarget] = useState<{ id: string; title: string } | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [isRenaming, setIsRenaming] = useState(false);
+  const [studyTarget, setStudyTarget] = useState<{ id: string; title: string } | null>(null);
 
   const sections = useMemo(() => {
     const folderMap = new Map<string, Section>();
@@ -135,6 +150,19 @@ export const DocumentsSection = ({
     }
   }, [closeRenameDialog, onRenameDocument, renameTarget, renameValue]);
 
+  const closeStudyDialog = useCallback(() => {
+    setStudyTarget(null);
+  }, []);
+
+  const handleStudyModeSelect = useCallback(
+    (mode: StudyMode) => {
+      if (!studyTarget) return;
+      onStudyDocument(studyTarget.id, mode);
+      setStudyTarget(null);
+    },
+    [onStudyDocument, studyTarget],
+  );
+
   if (documents.length === 0) {
     return (
       <section className="space-y-4">
@@ -153,6 +181,11 @@ export const DocumentsSection = ({
         <div className="rounded-lg border border-dashed border-muted-foreground/30 p-6 text-center text-sm text-muted-foreground">
           No documents uploaded yet.
         </div>
+        {!canUseStudyModes && (
+          <GuestUpgradeCallout
+            description="Upgrade to a full account to unlock AI-powered study, elaboration, and feedback modes for your documents."
+          />
+        )}
       </section>
     );
   }
@@ -171,6 +204,13 @@ export const DocumentsSection = ({
           </button>
         )}
       </div>
+
+      {!canUseStudyModes && (
+        <GuestUpgradeCallout
+          description="You're browsing in guest mode. Create an account to practice with summaries, elaboration prompts, and other active study tools."
+          className="mb-2"
+        />
+      )}
 
       <div className="space-y-6">
         {sections.map((section) => (
@@ -236,10 +276,18 @@ export const DocumentsSection = ({
                             variant="secondary"
                             size="sm"
                             className="flex items-center gap-1"
-                            onClick={() => onStudyDocument(doc.id)}
+                            onClick={() => {
+                              if (!canUseStudyModes) {
+                                toast.info('Create an account to access study modes.');
+                                onUpgradeRequest?.();
+                                return;
+                              }
+                              setStudyTarget({ id: doc.id, title: doc.title });
+                            }}
+                            disabled={!canUseStudyModes}
                           >
                             <ModelTrainingIcon fontSize="small" className="h-4 w-4" />
-                            Study
+                            {canUseStudyModes ? 'Study' : 'Study (locked)'}
                           </Button>
                           <Button
                             variant="outline"
@@ -283,6 +331,49 @@ export const DocumentsSection = ({
           </div>
         ))}
       </div>
+
+      <Dialog open={canUseStudyModes && !!studyTarget} onOpenChange={(open) => {
+        if (!open) {
+          closeStudyDialog();
+        }
+      }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Select a study mode</DialogTitle>
+            {studyTarget && (
+              <DialogDescription>
+                Choose how you'd like to study <strong>{studyTarget.title}</strong>.
+              </DialogDescription>
+            )}
+          </DialogHeader>
+          <div className="grid gap-3 sm:grid-cols-2">
+            {STUDY_MODES.map((mode) => {
+              const Icon = STUDY_MODE_ICONS[mode.id];
+              return (
+                <button
+                  key={mode.id}
+                  type="button"
+                  onClick={() => handleStudyModeSelect(mode.id)}
+                  className="group flex h-full flex-col items-start gap-2 rounded-lg border border-muted-foreground/20 bg-card p-4 text-left transition hover:border-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                >
+                  <span className="flex items-center gap-2 text-sm font-semibold">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-primary/10 text-primary">
+                      <Icon className="h-4 w-4" />
+                    </span>
+                    {mode.label}
+                  </span>
+                  <span className="text-xs text-muted-foreground">{mode.description}</span>
+                </button>
+              );
+            })}
+          </div>
+          <DialogFooter className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={closeStudyDialog}>
+              Cancel
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!renameTarget} onOpenChange={(open) => {
         if (!open) {

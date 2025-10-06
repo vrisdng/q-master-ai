@@ -22,3 +22,28 @@ export const STUDY_SET_LABEL_COLORS = [
   { name: "Sky", value: "#0EA5E9" },
   { name: "Slate", value: "#64748B" },
 ] as const;
+
+export const STUDY_MODES = [
+  {
+    id: "summary",
+    label: "Summary Mode",
+    description: "Generate key points, draft summaries, and get instant feedback.",
+  },
+  {
+    id: "elaboration",
+    label: "Elaboration Mode",
+    description: "Expand core ideas with why/how prompts and instant AI coaching.",
+  },
+  {
+    id: "self-explanation",
+    label: "Self-Explanation Mode",
+    description: "Practice explaining concepts in your own words to deepen understanding (coming soon).",
+  },
+  {
+    id: "feynman",
+    label: "Feynman Mode",
+    description: "Teach the concept simply and identify knowledge gaps (coming soon).",
+  },
+] as const;
+
+export type StudyMode = (typeof STUDY_MODES)[number]["id"];

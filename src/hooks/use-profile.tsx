@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
-import { fetchProfile, ProfileDocument, ProfileFolder, ProfileResponse, ProfileStudySet, UserProfile } from "@/lib/api";
+import { fetchProfile, ProfileCapabilities, ProfileDocument, ProfileFolder, ProfileResponse, ProfileStudySet, UserProfile } from "@/lib/api";
 
 type ProfileData = {
   profile: UserProfile | null;
   documents: ProfileDocument[];
   studySets: ProfileStudySet[];
   folders: ProfileFolder[];
+  capabilities: ProfileCapabilities | null;
 };
 
 type UseProfileState = ProfileData & {
@@ -18,6 +19,7 @@ const initialState: UseProfileState = {
   documents: [],
   studySets: [],
   folders: [],
+  capabilities: null,
   isLoading: true,
   error: null,
 };
@@ -35,6 +37,7 @@ export const useProfile = () => {
         documents: data.documents ?? [],
         studySets: data.studySets ?? [],
         folders: data.folders ?? [],
+        capabilities: data.capabilities ?? null,
         isLoading: false,
         error: null,
       });
@@ -44,6 +47,7 @@ export const useProfile = () => {
         documents: [],
         studySets: [],
         folders: [],
+        capabilities: null,
         isLoading: false,
         error: err instanceof Error ? err : new Error("Failed to load profile"),
       });
@@ -99,6 +103,7 @@ export const useProfile = () => {
     documents: state.documents,
     studySets: state.studySets,
     folders: state.folders,
+    capabilities: state.capabilities,
     isLoading: state.isLoading,
     error: state.error,
     reload: loadProfile,

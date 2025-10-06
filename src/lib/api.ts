@@ -1,22 +1,33 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
 
+const extractFunctionErrorReason = (error: unknown): string | undefined => {
+  if (typeof error !== "object" || error === null) return undefined;
+  const context = (error as { context?: unknown }).context;
+  if (typeof context !== "object" || context === null) return undefined;
+  const reason = (context as { reason?: unknown }).reason;
+  return typeof reason === "string" ? reason : undefined;
+};
+
 export interface ParseResponse {
   text: string;
   topics: string;
   approxTokens: number;
 }
 
+export type StudySetConfig = {
+  mcqCount?: number;
+  difficulty?: string;
+  topics?: string[];
+  [key: string]: unknown;
+};
+
 export interface StudySet {
   id: string;
   title: string;
   text: string;
   topics: string[];
-  config: {
-    mcqCount: number;
-    difficulty: string;
-    topics?: string[];
-  };
+  config: StudySetConfig;
   sourceType: "pdf" | "text" | "url";
   sourceUrl: string | null;
   sourceDocumentId: string | null;
@@ -41,6 +52,13 @@ export interface UserProfile {
   metadata: Record<string, unknown>;
   createdAt: string;
   updatedAt: string;
+  role: "guest" | "user" | "admin";
+}
+
+export interface ProfileCapabilities {
+  role: "guest" | "user" | "admin";
+  canUseStudyModes: boolean;
+  quotas: { documents: number; studySets: number } | null;
 }
 
 export interface ProfileDocument {
@@ -88,6 +106,7 @@ export interface ProfileResponse {
   documents: ProfileDocument[];
   studySets: ProfileStudySet[];
   folders: ProfileFolder[];
+  capabilities?: ProfileCapabilities;
 }
 
 export interface DocumentDetail {
@@ -138,6 +157,54 @@ export interface SummaryEvaluation {
   wordTarget: number;
 }
 
+export interface ElaborationAnchor {
+  chunkId: string;
+  label: string;
+  excerpt: string;
+  text: string;
+}
+
+export interface ElaborationQuestion {
+  id: string;
+  prompt: string;
+  difficulty: "standard" | "advanced";
+  modelAnswer: string;
+  focus?: string;
+  anchors: ElaborationAnchor[];
+}
+
+export interface ElaborationMetric {
+  value: number;
+  explanation: string;
+}
+
+export interface ElaborationEvaluation {
+  scores: {
+    coverage: ElaborationMetric;
+    causal: ElaborationMetric;
+    connection: ElaborationMetric;
+  };
+  highlights: {
+    correctIdeas: string[];
+    missingLinks: string[];
+    suggestions: string[];
+  };
+  modelAnswer: string;
+  followUp?: string;
+}
+
+export interface ElaborationSessionSummary {
+  conceptsExplainedWell: string[];
+  conceptsNeedingElaboration: string[];
+  studyTips: string[];
+}
+
+export interface ElaborationSummaryInput {
+  question: string;
+  highlights: ElaborationEvaluation["highlights"];
+  scores: ElaborationEvaluation["scores"];
+}
+
 /**
  * Parse content from various sources
  */
@@ -167,21 +234,28 @@ export const createDocument = async (params: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("User not authenticated");
 
-  const { data, error } = await (supabase as any)
-    .from("documents")
-    .insert({
+  const { data, error } = await supabase.functions.invoke<{ id?: string }>("create-document", {
+    body: {
       title: params.title,
-      source_type: params.sourceType,
-      source_url: params.sourceUrl,
-      owner_id: user.id,
-      status: "ready",
-      metadata: { content: params.content },
-      folder_id: params.folderId ?? null,
-    })
-    .select("id")
-    .single();
+      sourceType: params.sourceType,
+      sourceUrl: params.sourceUrl,
+      folderId: params.folderId ?? null,
+      content: params.content,
+    },
+  });
 
-  if (error) throw error;
+  if (error) {
+    const reason = extractFunctionErrorReason(error);
+    if (reason === "documents_quota") {
+      throw new Error("Guest limit reached: upgrade to upload more documents.");
+    }
+    throw new Error(error.message ?? "Failed to create document");
+  }
+
+  if (!data?.id) {
+    throw new Error("Document creation failed: missing id");
+  }
+
   return data.id;
 };
 
@@ -218,7 +292,7 @@ export const createStudySet = async (params: {
   title: string;
   text: string;
   topics: string[];
-  config: { mcqCount: number; difficulty: string; topics?: string[] };
+  config: StudySetConfig;
   sourceType: "pdf" | "text" | "url";
   sourceUrl?: string;
   documentId?: string;
@@ -226,22 +300,30 @@ export const createStudySet = async (params: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("User not authenticated");
 
-  const { data, error } = await (supabase as any)
-    .from("study_sets")
-    .insert({
+  const { data, error } = await supabase.functions.invoke<{ id?: string }>("create-study-set", {
+    body: {
       title: params.title,
       text: params.text,
       topics: params.topics,
       config: params.config,
-      source_type: params.sourceType,
-      source_url: params.sourceUrl ?? null,
-      source_document_id: params.documentId ?? null,
-      owner_id: user.id,
-    })
-    .select("id")
-    .single();
+      sourceType: params.sourceType,
+      sourceUrl: params.sourceUrl ?? null,
+      documentId: params.documentId ?? null,
+    },
+  });
 
-  if (error) throw error;
+  if (error) {
+    const reason = extractFunctionErrorReason(error);
+    if (reason === "study_sets_quota") {
+      throw new Error("Guest limit reached: upgrade to generate more study sets.");
+    }
+    throw new Error(error.message ?? "Failed to create study set");
+  }
+
+  if (!data?.id) {
+    throw new Error("Study set creation failed: missing id");
+  }
+
   return data.id;
 };
 
@@ -328,6 +410,85 @@ export const evaluateSummary = async (
 
   if (error) throw error;
   if (!data?.data) throw new Error("Failed to evaluate summary");
+
+  return data.data;
+};
+
+export const fetchElaborationQuestions = async (
+  documentId: string,
+  options?: { questionCount?: number; difficulty?: "mixed" | "core" | "advanced" },
+): Promise<{
+  document: { id: string; title: string };
+  questions: ElaborationQuestion[];
+  config: { questionCount: number; difficulty: "mixed" | "core" | "advanced" };
+}> => {
+  const { data, error } = await supabase.functions.invoke<{
+    data?: {
+      document: { id: string; title: string };
+      questions: ElaborationQuestion[];
+      config?: { questionCount?: number; difficulty?: string };
+    };
+  }>("elaboration-mode", {
+    body: {
+      action: "generate-questions",
+      documentId,
+      questionCount: options?.questionCount,
+      difficulty: options?.difficulty,
+    },
+  });
+
+  if (error) throw error;
+  if (!data?.data) throw new Error("Failed to load elaboration prompts");
+
+  const questionCount = data.data.config?.questionCount ?? data.data.questions.length;
+  const difficulty = (data.data.config?.difficulty as "mixed" | "core" | "advanced" | undefined) ?? "mixed";
+
+  return {
+    document: data.data.document,
+    questions: data.data.questions,
+    config: {
+      questionCount,
+      difficulty,
+    },
+  };
+};
+
+export const evaluateElaborationAnswer = async (
+  params: { question: ElaborationQuestion; answer: string },
+): Promise<ElaborationEvaluation> => {
+  const { data, error } = await supabase.functions.invoke<{ data?: ElaborationEvaluation }>(
+    "elaboration-mode",
+    {
+      body: {
+        action: "evaluate-answer",
+        question: params.question,
+        userAnswer: params.answer,
+      },
+    },
+  );
+
+  if (error) throw error;
+  if (!data?.data) throw new Error("Failed to score elaboration");
+
+  return data.data;
+};
+
+export const summarizeElaborationSession = async (
+  params: { documentTitle: string; evaluations: ElaborationSummaryInput[] },
+): Promise<ElaborationSessionSummary> => {
+  const { data, error } = await supabase.functions.invoke<{ data?: ElaborationSessionSummary }>(
+    "elaboration-mode",
+    {
+      body: {
+        action: "summarize-session",
+        documentTitle: params.documentTitle,
+        evaluations: params.evaluations,
+      },
+    },
+  );
+
+  if (error) throw error;
+  if (!data?.data) throw new Error("Failed to generate recap");
 
   return data.data;
 };
@@ -533,7 +694,7 @@ export const fetchProfile = async (): Promise<ProfileResponse> => {
       }));
     }
 
-    const { data: latestStudySets, error: latestStudySetsError } = await supabase
+  const { data: latestStudySets, error: latestStudySetsError } = await supabase
       .from("study_sets")
       .select(
         "id, owner_id, title, created_at, source_type, source_url, text, topics, config, source_document_id, folder_id, label_text, label_color",
@@ -561,21 +722,34 @@ export const fetchProfile = async (): Promise<ProfileResponse> => {
     }
   }
 
-  return data;
+  const role = data.profile?.role ?? "user";
+  const capabilities: ProfileCapabilities = data.capabilities ?? {
+    role,
+    canUseStudyModes: role !== "guest",
+    quotas: role === "guest" ? { documents: 2, studySets: 2 } : null,
+  };
+
+  return {
+    profile: data.profile,
+    documents: data.documents,
+    studySets: data.studySets,
+    folders: data.folders,
+    capabilities,
+  };
 };
 
 export const createFolder = async (name: string): Promise<string> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("User not authenticated");
 
-  const { data, error } = await (supabase as any)
+  const { data, error } = await supabase
     .from("folders")
     .insert({
       name,
       owner_id: user.id,
     })
     .select("id")
-    .single();
+    .single<{ id: string }>();
 
   if (error) throw error;
   return data.id;

@@ -10,6 +10,8 @@ const corsHeaders = {
 
 const MODEL_ID = "deepseek/deepseek-chat-v3.1:free";
 
+type Role = "guest" | "user" | "admin";
+
 interface KeyPointPayload {
   id: string;
   label: string;
@@ -34,6 +36,26 @@ type DocumentRow = {
   source_type: string;
   metadata: Record<string, unknown> | null;
   created_at: string;
+};
+
+const getRole = async (
+  client: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<Role> => {
+  const { data, error } = await client
+    .from("user_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle<{ role: Role }>();
+
+  if (error) {
+    console.error("Role lookup failed", error);
+    return "user";
+  }
+
+  return (data?.role ?? "user") as Role;
 };
 
 const json = (status: number, body: Record<string, unknown>) =>
@@ -306,6 +328,14 @@ serve(async (req) => {
 
     if (userError || !user) {
       return json(401, { error: "Unauthorized" });
+    }
+
+    const role = await getRole(supabase, user.id);
+    if (role === "guest") {
+      return json(403, {
+        error: "Guest accounts cannot access study modes",
+        reason: "upgrade_required",
+      });
     }
 
     const { data: document, error: fetchError } = await supabase

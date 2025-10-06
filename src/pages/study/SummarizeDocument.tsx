@@ -21,6 +21,8 @@ import {
 import { cn } from "@/lib/utils";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
 import { toast } from "sonner";
+import { useAuth } from "@/hooks/useAuth";
+import GuestUpgradeCallout from "@/components/GuestUpgradeCallout";
 
 interface CoverageMeterProps {
   coverage: number;
@@ -99,6 +101,7 @@ const buildHighlightedHtml = (content: string, keyPoints: SummaryKeyPoint[]) => 
 const SummarizeDocumentPage = () => {
   const { documentId } = useParams<{ documentId: string }>();
   const navigate = useNavigate();
+  const { loading: authLoading, isGuest } = useAuth();
 
   const [document, setDocument] = useState<DocumentDetail | null>(null);
   const [isLoadingDoc, setIsLoadingDoc] = useState(true);
@@ -121,6 +124,13 @@ const SummarizeDocumentPage = () => {
   useEffect(() => {
     if (!documentId) {
       navigate("/profile");
+      return;
+    }
+
+    if (authLoading || isGuest) {
+      if (!authLoading && isGuest) {
+        setIsLoadingDoc(false);
+      }
       return;
     }
 
@@ -148,7 +158,7 @@ const SummarizeDocumentPage = () => {
     return () => {
       isActive = false;
     };
-  }, [documentId, navigate]);
+  }, [documentId, navigate, authLoading, isGuest]);
 
   const highlightedContent = useMemo(() => {
     if (!document) return "";
@@ -174,7 +184,7 @@ const SummarizeDocumentPage = () => {
   }, [evaluation, keyPoints.length]);
 
   const handleGenerateKeyPoints = useCallback(async () => {
-    if (!documentId) return;
+    if (!documentId || isGuest) return;
     setIsFetchingKeyPoints(true);
     try {
       const result = await fetchSummaryKeyPoints(documentId);
@@ -188,10 +198,10 @@ const SummarizeDocumentPage = () => {
     } finally {
       setIsFetchingKeyPoints(false);
     }
-  }, [documentId, wordTarget]);
+  }, [documentId, wordTarget, isGuest]);
 
   const handleExampleSummary = useCallback(async () => {
-    if (!documentId) return;
+    if (!documentId || isGuest) return;
     setIsFetchingExample(true);
     try {
       const result = await fetchExampleSummary(documentId);
@@ -204,10 +214,14 @@ const SummarizeDocumentPage = () => {
     } finally {
       setIsFetchingExample(false);
     }
-  }, [documentId, wordTarget]);
+  }, [documentId, wordTarget, isGuest]);
 
   const handleEvaluate = useCallback(async () => {
     if (!documentId) return;
+    if (isGuest) {
+      toast.info("Upgrade to get instant feedback on your summary.");
+      return;
+    }
     if (!draftSummary.trim()) {
       toast.error("Write your summary before checking");
       return;
@@ -232,9 +246,27 @@ const SummarizeDocumentPage = () => {
     } finally {
       setIsEvaluating(false);
     }
-  }, [documentId, draftSummary, keyPoints, wordTarget]);
+  }, [documentId, draftSummary, keyPoints, wordTarget, isGuest]);
 
   const exampleLabel = exampleSummary ? "Regenerate Gold Summary" : "Show Example Summary";
+
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <p className="text-sm text-muted-foreground">Checking access…</p>
+      </div>
+    );
+  }
+
+  if (isGuest) {
+    return (
+      <div className="min-h-screen flex items-center justify-center px-4">
+        <GuestUpgradeCallout
+          description="Summary practice with AI feedback is available after creating a free account. Unlock study and exam modes, save progress, and keep your documents synced across devices."
+        />
+      </div>
+    );
+  }
 
   if (isLoadingDoc) {
     return (

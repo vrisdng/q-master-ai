@@ -4,6 +4,7 @@ import ModelTrainingIcon from '@mui/icons-material/ModelTraining';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import GuestUpgradeCallout from '@/components/GuestUpgradeCallout';
 
 interface AttemptResult {
   stem: string;
@@ -19,6 +20,7 @@ interface ResultsSummaryProps {
   onRetryIncorrect: () => void | Promise<void>;
   onViewStudySet?: () => void | Promise<void>;
   onNewTest: () => void;
+  isGuest?: boolean;
 }
 
 export const ResultsSummary = memo(({ 
@@ -28,6 +30,7 @@ export const ResultsSummary = memo(({
   onRetryIncorrect,
   onViewStudySet,
   onNewTest,
+  isGuest,
 }: ResultsSummaryProps) => {
   const totalQuestions = attempts.length;
   const correctCount = attempts.filter((a) => a.isCorrect).length;
@@ -52,7 +55,7 @@ export const ResultsSummary = memo(({
         </div>
       </Card>
 
-      <Card className="p-6 shadow-medium">
+      <Card className="p-6 shadow-medium space-y-4">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-xl font-semibold">Question Summary</h3>
           <div className="flex gap-2">
@@ -72,6 +75,14 @@ export const ResultsSummary = memo(({
             </Button>
           </div>
         </div>
+
+        {isGuest && (
+          <GuestUpgradeCallout
+            description="Keep track of your mastery, access advanced study modes, and save unlimited sets by creating your free account."
+            ctaLabel="Unlock full access"
+            className="border-dashed border-primary/40"
+          />
+        )}
 
         <div className="space-y-3">
           {attempts.map((attempt, index) => (

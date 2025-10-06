@@ -9,6 +9,29 @@ const corsHeaders = {
 		"authorization, x-client-info, apikey, content-type",
 };
 
+const MAX_GUEST_STUDY_SETS = 2;
+type Role = "guest" | "user" | "admin";
+
+const getRole = async (
+	client: ReturnType<typeof createClient>,
+	userId: string,
+): Promise<Role> => {
+	const { data, error } = await client
+		.from("user_roles")
+		.select("role")
+		.eq("user_id", userId)
+		.order("created_at", { ascending: false })
+		.limit(1)
+		.maybeSingle<{ role: Role }>();
+
+	if (error) {
+		console.error("Role lookup failed", error);
+		return "user";
+	}
+
+	return (data?.role ?? "user") as Role;
+};
+
 function json(status: number, body: any) {
 	return new Response(JSON.stringify(body), {
 		status,
@@ -31,16 +54,51 @@ serve(async (req) => {
 		const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 		const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
 
-		console.log("SUPABASE_URL:", supabaseUrl);
-		console.log("SUPABASE_SERVICE_ROLE_KEY:", supabaseKey);
-		console.log("LOVABLE_API_KEY:", lovableApiKey);
-
 		if (!supabaseUrl) return json(500, { error: "Missing SUPABASE_URL" });
 		if (!supabaseKey)
 			return json(500, { error: "Missing SUPABASE_SERVICE_ROLE_KEY" });
 		if (!lovableApiKey) return json(500, { error: "Missing LOVABLE_API_KEY" });
 
-		const supabase = createClient(supabaseUrl, supabaseKey);
+		const supabase = createClient(supabaseUrl, supabaseKey, {
+			auth: { persistSession: false },
+		});
+
+		const authHeader = req.headers.get("Authorization") ?? "";
+		const accessToken = authHeader.replace(/^Bearer\s+/i, "").trim();
+		if (!accessToken) {
+			return json(401, { error: "Unauthorized" });
+		}
+
+		const {
+			data: { user },
+			error: userError,
+		} = await supabase.auth.getUser(accessToken);
+
+		if (userError || !user) {
+			return json(401, { error: "Unauthorized" });
+		}
+
+		const role = await getRole(supabase, user.id);
+
+		if (role === "guest") {
+			const { count, error: countError } = await supabase
+				.from("study_sets")
+				.select("id", { count: "exact", head: true })
+				.eq("owner_id", user.id);
+
+			if (countError) {
+				console.error("Guest quota count failed", countError);
+				return json(500, { error: "Unable to check quota" });
+			}
+
+			if ((count ?? 0) > MAX_GUEST_STUDY_SETS) {
+				return json(403, {
+					error: "Guest quota reached",
+					reason: "study_sets_quota",
+					max: MAX_GUEST_STUDY_SETS,
+				});
+			}
+		}
 
 		// 1) Input validation
 		let body: any;
@@ -61,6 +119,7 @@ serve(async (req) => {
 			.from("study_sets")
 			.select("*")
 			.eq("id", studySetId)
+			.eq("owner_id", user.id)
 			.single();
 
 		if (fetchError) {

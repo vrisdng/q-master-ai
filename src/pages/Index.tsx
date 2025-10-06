@@ -4,12 +4,14 @@ import { BookOpen, Sparkles, FileText, Link as LinkIcon, LogOut, User } from 'lu
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
 import { FileUpload } from '@/components/FileUpload';
 import { ConfigCard } from '@/components/ConfigCard';
 import { GenerationProgress } from '@/components/GenerationProgress';
 import { MCQQuestion } from '@/components/MCQQuestion';
 import { ResultsSummary } from '@/components/ResultsSummary';
 import { ThemeToggle } from '@/components/ThemeToggle';
+import GuestUpgradeCallout from '@/components/GuestUpgradeCallout';
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { 
@@ -38,6 +40,9 @@ type AttemptSummary = {
   isCorrect: boolean;
 };
 
+const PRACTICE_STAGE_KEY = 'qm-practice-stage';
+const PRACTICE_ACTIVE_KEY = 'qm-practice-active';
+
 const normalizeSourceUrl = (rawUrl?: string) => {
   if (!rawUrl) return undefined;
   const trimmed = rawUrl.trim();
@@ -57,7 +62,7 @@ const normalizeSourceUrl = (rawUrl?: string) => {
 const Index = () => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user, profile, loading, signOut } = useAuth();
+  const { user, profile, loading, signOut, isGuest } = useAuth();
   const [stage, setStage] = useState<Stage>('upload');
   const [sourceText, setSourceText] = useState('');
   const [sourceType, setSourceType] = useState('');
@@ -84,13 +89,6 @@ const Index = () => {
     isCorrect: boolean;
     timeMs: number;
   }>>([]);
-
-  // Auth protection
-  useEffect(() => {
-    if (!loading && !user) {
-      navigate('/auth');
-    }
-  }, [user, loading, navigate]);
 
   const loadStudySetById = useCallback(async (setId: string) => {
     try {
@@ -139,6 +137,21 @@ const Index = () => {
       loadStudySetById(state.studySetId);
     }
   }, [location.state, loadStudySetById]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(PRACTICE_STAGE_KEY, stage);
+    window.localStorage.setItem(PRACTICE_ACTIVE_KEY, stage === 'upload' ? '0' : '1');
+  }, [stage]);
+
+  const guestQuota = useMemo(() => {
+    if (!isGuest || !profile?.metadata) return { documents: 2, studySets: 2 };
+    const metadata = profile.metadata as { guest?: { quota?: { documents?: number; studySets?: number } } };
+    return {
+      documents: metadata?.guest?.quota?.documents ?? 2,
+      studySets: metadata?.guest?.quota?.studySets ?? 2,
+    };
+  }, [isGuest, profile?.metadata]);
 
   const handleParse = async (data: { sourceType: string; text: string; sourceUrl?: string }) => {
     try {
@@ -414,7 +427,7 @@ const Index = () => {
     toast.info('Configure a new test set');
   }, []);
 
-  if (loading) {
+  if (loading || !user) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-center">
@@ -423,10 +436,6 @@ const Index = () => {
         </div>
       </div>
     );
-  }
-
-  if (!user) {
-    return null;
   }
 
   const currentQuestion = questions[currentQuestionIndex];
@@ -463,6 +472,9 @@ const Index = () => {
                 <span className="text-muted-foreground">
                   {profile?.username || user.email?.split('@')[0]}
                 </span>
+                {isGuest && (
+                  <Badge variant="outline" className="uppercase tracking-wide">Guest Access</Badge>
+                )}
               </div>
               <Button
                 variant="ghost"
@@ -480,6 +492,14 @@ const Index = () => {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 py-12">
+        {isGuest && (stage === 'upload' || stage === 'config') && (
+          <div className="mb-8">
+            <GuestUpgradeCallout
+              description={`Guest accounts can upload up to ${guestQuota.documents} documents and generate ${guestQuota.studySets} quiz sets. Sign up to unlock study and exam modes, progress tracking, and unlimited sets.`}
+            />
+          </div>
+        )}
+
         {stage === 'upload' && (
           <div className="max-w-2xl mx-auto space-y-6">
             <div className="text-center mb-8">
@@ -578,6 +598,7 @@ const Index = () => {
             onRetryIncorrect={handleRetryIncorrect}
             onViewStudySet={handleViewStudySet}
             onNewTest={handleNewTest}
+            isGuest={isGuest}
           />
         )}
       </main>
