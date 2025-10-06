@@ -99,6 +99,16 @@ serve(async (req) => {
     if (roleError) {
       console.error("Failed to assign guest role", roleError);
       await admin.auth.admin.deleteUser(guestUser.id);
+
+      const roleErrorCode = (roleError as { code?: string }).code;
+      if (roleErrorCode === '22P02') {
+        return json(500, {
+          error: "Guest role not configured",
+          reason: "missing_guest_role",
+          message: "The app_role enum is missing the 'guest' value. Run the latest database migration (ALTER TYPE app_role ADD VALUE 'guest') and redeploy the function.",
+        });
+      }
+
       return json(500, { error: "Unable to assign guest role" });
     }
 
