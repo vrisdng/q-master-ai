@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { supabase } from '@/integrations/supabase/client';
+import type { Session } from '@supabase/supabase-js';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -22,17 +23,19 @@ export default function Auth() {
   const [username, setUsername] = useState('');
 
   useEffect(() => {
-    // Check if user is already logged in
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      if (session) {
+    const redirectIfFullUser = (session: Session | null) => {
+      const provider = session?.user?.app_metadata?.provider;
+      if (session && provider !== 'guest') {
         navigate('/practice');
       }
+    };
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      redirectIfFullUser(session);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
-      if (session) {
-        navigate('/practice');
-      }
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_, session) => {
+      redirectIfFullUser(session);
     });
 
     return () => subscription.unsubscribe();

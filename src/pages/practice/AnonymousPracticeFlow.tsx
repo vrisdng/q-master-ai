@@ -279,10 +279,20 @@ const AnonymousPracticeFlow = () => {
   }, [currentQuestionIndex, finishQuiz, questions.length]);
 
   const handlePreviousQuestion = useCallback(() => {
-    if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex((index) => index - 1);
+    const currentQuestion = questions[currentQuestionIndex];
+    if (!currentQuestion) {
+      return;
     }
-  }, [currentQuestionIndex]);
+
+    const hasAnsweredCurrent = attempts.some((attempt) => attempt.itemId === currentQuestion.id);
+    if (!hasAnsweredCurrent) {
+      return;
+    }
+
+    if (currentQuestionIndex > 0) {
+      setCurrentQuestionIndex((index) => Math.max(0, index - 1));
+    }
+  }, [attempts, currentQuestionIndex, questions]);
 
   const attemptSummaries = useMemo<AttemptSummary[]>(() => {
     if (!attempts.length) return [];
@@ -435,6 +445,11 @@ const AnonymousPracticeFlow = () => {
     if (!currentQuestion) {
       return null;
     }
+
+     const currentAnswered = attempts.some((attempt) => attempt.itemId === currentQuestion.id);
+     const hasNext = currentQuestionIndex < questions.length - 1;
+     const hasPrevious = currentQuestionIndex > 0 && currentAnswered;
+
     return (
       <MCQQuestion
         stem={currentQuestion.stem}
@@ -447,8 +462,8 @@ const AnonymousPracticeFlow = () => {
         onAnswer={handleAnswer}
         onNext={handleNextQuestion}
         onPrevious={handlePreviousQuestion}
-        hasNext={currentQuestionIndex < questions.length - 1}
-        hasPrevious={currentQuestionIndex > 0}
+        hasNext={hasNext}
+        hasPrevious={hasPrevious}
       />
     );
   };
@@ -529,10 +544,20 @@ const AnonymousPracticeFlow = () => {
                 </span>
                 {isGuest && <Badge variant="outline" className="uppercase tracking-wide">Guest Access</Badge>}
               </div>
-              <Button variant="ghost" size="sm" onClick={signOut} className="gap-2">
-                <LogOut className="h-4 w-4" />
-                Sign Out
-              </Button>
+              {isGuest ? (
+                <Button
+                  size="sm"
+                  className="gap-2 gradient-primary"
+                  onClick={() => navigate('/auth')}
+                >
+                  Sign In
+                </Button>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={signOut} className="gap-2">
+                  <LogOut className="h-4 w-4" />
+                  Sign Out
+                </Button>
+              )}
             </div>
           </div>
         </div>
