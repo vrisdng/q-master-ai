@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Upload, FileText, Link as LinkIcon } from 'lucide-react';
+import { Upload, FileText, Link as LinkIcon, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
@@ -158,9 +158,18 @@ export const FileUpload = ({ onParse }: FileUploadProps) => {
       <Button
         onClick={handleParse}
         disabled={isLoading}
-        className="w-full mt-6 gradient-primary hover:opacity-90"
+        className="w-full mt-6 gradient-primary hover:opacity-90 gap-2"
       >
-        {isLoading ? 'Parsing...' : 'Parse & Continue'}
+        {isLoading ? (
+          <>
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Parsing...
+          </>
+        ) : (
+          <>
+            Parse & Continue
+          </>
+        )}
       </Button>
     </Card>
   );

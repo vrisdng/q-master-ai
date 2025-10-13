@@ -1,5 +1,21 @@
 import { supabase } from "@/integrations/supabase/client";
 import type { Database } from "@/integrations/supabase/types";
+import type {
+  MockExam,
+  MockExamEvaluation,
+  MockExamGenerationConfig,
+  MockExamResponse,
+  MockExamQuestion,
+  MockExamIntensity,
+} from "@/types/mock-exam";
+import type {
+  TestDefinition,
+  TestQuestionPlan,
+  TestRun,
+  TestEvaluation,
+} from "@/types/test-arena";
+
+const FUNCTIONS_BASE_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1`;
 
 const extractFunctionErrorReason = (error: unknown): string | undefined => {
   if (typeof error !== "object" || error === null) return undefined;
@@ -7,6 +23,103 @@ const extractFunctionErrorReason = (error: unknown): string | undefined => {
   if (typeof context !== "object" || context === null) return undefined;
   const reason = (context as { reason?: unknown }).reason;
   return typeof reason === "string" ? reason : undefined;
+};
+
+const EDGE_FUNCTION_MAX_ATTEMPTS = 3;
+
+export class EdgeFunctionFailureError extends Error {
+  constructor(
+    public readonly functionName: string,
+    public readonly cause: unknown,
+  ) {
+    super("We couldn't complete this action right now. Please return to the homepage and try again.");
+    this.name = "EdgeFunctionFailureError";
+  }
+}
+
+type InvokeEdgeFunctionOptions = {
+  body?: unknown;
+  headers?: Record<string, string>;
+  method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+  shouldRetry?: (error: unknown) => boolean;
+};
+
+export const invokeEdgeFunction = async <T>(
+  functionName: string,
+  options: InvokeEdgeFunctionOptions = {},
+): Promise<T> => {
+  const { shouldRetry, ...invokeOptions } = options;
+  let lastError: unknown;
+
+  for (let attempt = 1; attempt <= EDGE_FUNCTION_MAX_ATTEMPTS; attempt++) {
+    try {
+      const { data, error } = await supabase.functions.invoke<T>(functionName, invokeOptions);
+      if (!error) {
+        return data;
+      }
+
+      lastError = error;
+      if (shouldRetry && !shouldRetry(error)) {
+        break;
+      }
+    } catch (error) {
+      lastError = error;
+      if (shouldRetry && !shouldRetry(error)) {
+        break;
+      }
+    }
+  }
+
+  throw new EdgeFunctionFailureError(functionName, lastError ?? new Error("Unknown edge function error"));
+};
+
+const callTestApi = async <T>(
+  path: string,
+  options: {
+    method?: "GET" | "POST" | "PUT" | "PATCH" | "DELETE";
+    body?: unknown;
+    signal?: AbortSignal;
+  } = {},
+): Promise<T> => {
+  const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+  if (sessionError) throw sessionError;
+
+  const accessToken = sessionData.session?.access_token;
+  if (!accessToken) throw new Error("User not authenticated");
+
+  const method = options.method ?? "GET";
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${accessToken}`,
+  };
+
+  let body: BodyInit | undefined;
+  if (options.body !== undefined) {
+    headers["Content-Type"] = "application/json";
+    body = JSON.stringify(options.body);
+  }
+
+  const response = await fetch(`${FUNCTIONS_BASE_URL}/v1-test${path}`, {
+    method,
+    headers,
+    body,
+    signal: options.signal,
+  });
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  const data = await response.json().catch(() => null);
+
+  if (!response.ok) {
+    const message =
+      (data && typeof data === "object" && "error" in data)
+        ? String((data as { error?: unknown }).error ?? "Test API request failed")
+        : "Test API request failed";
+    throw new Error(message);
+  }
+
+  return data as T;
 };
 
 export interface ParseResponse {
@@ -213,12 +326,9 @@ export const parseContent = async (
   text?: string,
   url?: string
 ): Promise<ParseResponse> => {
-  const { data, error } = await supabase.functions.invoke("parse-content", {
+  return invokeEdgeFunction<ParseResponse>("parse-content", {
     body: { sourceType, text, url },
   });
-
-  if (error) throw error;
-  return data;
 };
 
 /**
@@ -234,22 +344,26 @@ export const createDocument = async (params: {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("User not authenticated");
 
-  const { data, error } = await supabase.functions.invoke<{ id?: string }>("create-document", {
-    body: {
-      title: params.title,
-      sourceType: params.sourceType,
-      sourceUrl: params.sourceUrl,
-      folderId: params.folderId ?? null,
-      content: params.content,
-    },
-  });
-
-  if (error) {
-    const reason = extractFunctionErrorReason(error);
-    if (reason === "documents_quota") {
-      throw new Error("Guest limit reached: upgrade to upload more documents.");
+  let data: { id?: string } | null | undefined;
+  try {
+    data = await invokeEdgeFunction<{ id?: string }>("create-document", {
+      body: {
+        title: params.title,
+        sourceType: params.sourceType,
+        sourceUrl: params.sourceUrl,
+        folderId: params.folderId ?? null,
+        content: params.content,
+      },
+      shouldRetry: (error) => extractFunctionErrorReason(error) !== "documents_quota",
+    });
+  } catch (error) {
+    if (error instanceof EdgeFunctionFailureError) {
+      const reason = extractFunctionErrorReason(error.cause);
+      if (reason === "documents_quota") {
+        throw new Error("Guest limit reached: upgrade to upload more documents.");
+      }
     }
-    throw new Error(error.message ?? "Failed to create document");
+    throw error;
   }
 
   if (!data?.id) {
@@ -291,33 +405,39 @@ export const fetchDocumentById = async (documentId: string): Promise<DocumentDet
 export const createStudySet = async (params: {
   title: string;
   text: string;
-  topics: string[];
+  topics?: string[];
   config: StudySetConfig;
   sourceType: "pdf" | "text" | "url";
   sourceUrl?: string;
   documentId?: string;
+  folderId?: string | null;
 }): Promise<string> => {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) throw new Error("User not authenticated");
 
-  const { data, error } = await supabase.functions.invoke<{ id?: string }>("create-study-set", {
-    body: {
-      title: params.title,
-      text: params.text,
-      topics: params.topics,
-      config: params.config,
-      sourceType: params.sourceType,
-      sourceUrl: params.sourceUrl ?? null,
-      documentId: params.documentId ?? null,
-    },
-  });
-
-  if (error) {
-    const reason = extractFunctionErrorReason(error);
-    if (reason === "study_sets_quota") {
-      throw new Error("Guest limit reached: upgrade to generate more study sets.");
+  let data: { id?: string } | null | undefined;
+  try {
+    data = await invokeEdgeFunction<{ id?: string }>("create-study-set", {
+      body: {
+        title: params.title,
+        text: params.text,
+        topics: params.topics ?? [],
+        config: params.config,
+        sourceType: params.sourceType,
+        sourceUrl: params.sourceUrl ?? null,
+        documentId: params.documentId ?? null,
+        folderId: params.folderId ?? null,
+      },
+      shouldRetry: (error) => extractFunctionErrorReason(error) !== "study_sets_quota",
+    });
+  } catch (error) {
+    if (error instanceof EdgeFunctionFailureError) {
+      const reason = extractFunctionErrorReason(error.cause);
+      if (reason === "study_sets_quota") {
+        throw new Error("Guest limit reached: upgrade to generate more study sets.");
+      }
     }
-    throw new Error(error.message ?? "Failed to create study set");
+    throw error;
   }
 
   if (!data?.id) {
@@ -345,37 +465,244 @@ export const deleteStudySet = async (studySetId: string): Promise<void> => {
 export const generateMCQs = async (
   studySetId: string
 ): Promise<{ status: string; counts: { mcq: number } }> => {
-  const { data, error } = await supabase.functions.invoke("generate-mcqs", {
+  return invokeEdgeFunction<{ status: string; counts: { mcq: number } }>("generate-mcqs", {
     body: { studySetId },
   });
+};
 
-  if (error) throw error;
+export const generateMockExam = async (
+  config: MockExamGenerationConfig,
+): Promise<MockExam> => {
+  const data = await invokeEdgeFunction<{ data?: MockExam }>("mock-exam", {
+    body: {
+      action: "generate",
+      documentId: config.documentId,
+      config: {
+        intensity: config.intensity,
+        timerEnabled: config.timerEnabled,
+        requirements: config.requirements,
+      },
+    },
+  });
+
+  if (!data?.data) {
+    throw new Error("Failed to generate mock exam");
+  }
+
+  return data.data;
+};
+
+export const evaluateMockExam = async (params: {
+  documentId: string;
+  examId: string;
+  intensity: MockExamIntensity;
+  questions: MockExamQuestion[];
+  responses: MockExamResponse[];
+}): Promise<MockExamEvaluation> => {
+  const data = await invokeEdgeFunction<{ data?: MockExamEvaluation }>("mock-exam", {
+    body: {
+      action: "evaluate",
+      documentId: params.documentId,
+      examId: params.examId,
+      intensity: params.intensity,
+      questions: params.questions,
+      responses: params.responses,
+    },
+  });
+
+  if (!data?.data) {
+    throw new Error("Failed to evaluate mock exam");
+  }
+
+  return data.data;
+};
+
+export const persistMockExamSummary = async (params: {
+  exam: MockExam;
+  evaluation: MockExamEvaluation;
+  generationConfig: MockExamGenerationConfig;
+  documentId: string;
+}): Promise<{ studySetId: string; folderId: string }> => {
+  const folderId = await ensureMockExamFolder();
+  const now = new Date();
+
+  const summaryLines: string[] = [
+    `Mock Exam Summary – ${exam.documentTitle}`,
+    `Generated on: ${now.toLocaleString()}`,
+    "",
+    `Intensity: ${exam.intensity}`,
+    `Timer: ${exam.timer.enabled ? `Enabled (${exam.timer.suggestedMinutes} min suggested)` : "Not enabled"}`,
+    `Overall Score: ${params.evaluation.overallScore}%`,
+    "",
+    "Highlights:",
+    ...params.evaluation.highlights.strengths.map((item) => `✔️ Strength: ${item}`),
+    ...params.evaluation.highlights.weakAreas.map((item) => `⚠️ Weak area: ${item}`),
+    ...params.evaluation.highlights.suggestions.map((item) => `💡 Suggestion: ${item}`),
+    "",
+    "Question Breakdown:",
+  ];
+
+  params.evaluation.details.forEach((detail, index) => {
+    const question = params.exam.questions.find((item) => item.id === detail.questionId);
+    const typeLabel = question?.type ?? "unknown";
+    summaryLines.push(
+      `${index + 1}. [${typeLabel.toUpperCase()}] Score: ${(detail.score * 100).toFixed(0)}%`,
+    );
+    summaryLines.push(`   Feedback: ${detail.feedback}`);
+    if (detail.strengths.length > 0) {
+      summaryLines.push(`   Strengths: ${detail.strengths.join("; ")}`);
+    }
+    if (detail.improvements.length > 0) {
+      summaryLines.push(`   Improvements: ${detail.improvements.join("; ")}`);
+    }
+    summaryLines.push("");
+  });
+
+  const summaryText = summaryLines.join("\n");
+
+  const studySetId = await createStudySet({
+    title: `Mock Exam – ${exam.documentTitle} (${now.toLocaleDateString()})`,
+    text: summaryText,
+    topics: ["Mock Exam"],
+    config: {
+      mode: "mock-exam",
+      examId: exam.examId,
+      intensity: exam.intensity,
+      timer: exam.timer,
+      requirements: params.generationConfig.requirements,
+      overallScore: params.evaluation.overallScore,
+      highlights: params.evaluation.highlights,
+      savedAtIso: now.toISOString(),
+    },
+    sourceType: "text",
+    documentId: params.documentId,
+    folderId,
+  });
+
+  return { studySetId, folderId };
+};
+
+export interface CreateTestInput {
+  title: string;
+  description?: string | null;
+  intensity: MockExamIntensity;
+  timerEnabled: boolean;
+  questionPlan: TestQuestionPlan;
+  folderIds: string[];
+  documentIds: string[];
+}
+
+export const listTests = async (): Promise<TestDefinition[]> => {
+  const data = await callTestApi<{ tests: TestDefinition[] }>("/v1/test", { method: "GET" });
+  return data.tests ?? [];
+};
+
+export const createTest = async (input: CreateTestInput): Promise<TestDefinition> => {
+  const data = await callTestApi<{ test: TestDefinition }>("/v1/test", {
+    method: "POST",
+    body: input,
+  });
+
+  if (!data?.test) {
+    throw new Error("Failed to create test");
+  }
+
+  return data.test;
+};
+
+export const updateTest = async (
+  testId: string,
+  updates: Partial<CreateTestInput> & { status?: TestDefinition["status"] },
+): Promise<TestDefinition> => {
+  const data = await callTestApi<{ test: TestDefinition }>(`/v1/test/${testId}`, {
+    method: "PUT",
+    body: updates,
+  });
+
+  if (!data?.test) {
+    throw new Error("Failed to update test");
+  }
+
+  return data.test;
+};
+
+export const deleteTest = async (testId: string): Promise<void> => {
+  await callTestApi(`/v1/test/${testId}`, { method: "DELETE" });
+};
+
+export const startTestRun = async (testId: string): Promise<TestRun> => {
+  const data = await callTestApi<{ run: TestRun }>(`/v1/test/${testId}/start`, {
+    method: "POST",
+  });
+
+  if (!data?.run) {
+    throw new Error("Failed to start test");
+  }
+
+  return data.run;
+};
+
+export const listTestRuns = async (testId: string): Promise<TestRun[]> => {
+  const data = await callTestApi<{ runs: TestRun[] }>(`/v1/test/${testId}/runs`, {
+    method: "GET",
+  });
+  return data.runs ?? [];
+};
+
+export const fetchTestRun = async (testId: string, runId: string): Promise<{
+  run: TestRun;
+  evaluation?: TestEvaluation;
+}> => {
+  const data = await callTestApi<{ run: TestRun; evaluation?: TestEvaluation }>(
+    `/v1/test/${testId}/runs/${runId}`,
+    { method: "GET" },
+  );
+
+  if (!data?.run) {
+    throw new Error("Run not found");
+  }
+
+  return data;
+};
+
+export const submitTestRun = async (
+  testId: string,
+  runId: string,
+  responses: MockExamResponse[],
+): Promise<{ run: TestRun; evaluation: TestEvaluation }> => {
+  const data = await callTestApi<{ run: TestRun; evaluation: TestEvaluation }>(
+    `/v1/test/${testId}/runs/${runId}/submit`,
+    {
+      method: "POST",
+      body: { responses },
+    },
+  );
+
+  if (!data?.run || !data?.evaluation) {
+    throw new Error("Failed to score test run");
+  }
+
   return data;
 };
 
 export const fetchSummaryKeyPoints = async (documentId: string): Promise<SummaryKeyPointResponse> => {
-  const { data, error } = await supabase.functions.invoke<{ data?: SummaryKeyPointResponse }>(
-    "summarize-document",
-    {
-      body: { action: "key-points", documentId },
-    },
-  );
+  const data = await invokeEdgeFunction<{ data?: SummaryKeyPointResponse }>("summarize-document", {
+    body: { action: "key-points", documentId },
+  });
 
-  if (error) throw error;
   if (!data?.data) throw new Error("Failed to load key points");
 
   return data.data;
 };
 
 export const fetchExampleSummary = async (documentId: string): Promise<SummaryExample> => {
-  const { data, error } = await supabase.functions.invoke<{ data?: { summary: string; wordCount: number; wordTarget: number } }>(
+  const data = await invokeEdgeFunction<{ data?: { summary: string; wordCount: number; wordTarget: number } }>(
     "summarize-document",
     {
       body: { action: "example-summary", documentId },
     },
   );
 
-  if (error) throw error;
   if (!data?.data) throw new Error("Failed to load example summary");
 
   return {
@@ -396,19 +723,15 @@ export const evaluateSummary = async (
     evidence: kp.evidence,
   }));
 
-  const { data, error } = await supabase.functions.invoke<{ data?: SummaryEvaluation }>(
-    "summarize-document",
-    {
-      body: {
-        action: "evaluate-summary",
-        documentId,
-        userSummary: params.summary,
-        keyPoints: payloadKeyPoints,
-      },
+  const data = await invokeEdgeFunction<{ data?: SummaryEvaluation }>("summarize-document", {
+    body: {
+      action: "evaluate-summary",
+      documentId,
+      userSummary: params.summary,
+      keyPoints: payloadKeyPoints,
     },
-  );
+  });
 
-  if (error) throw error;
   if (!data?.data) throw new Error("Failed to evaluate summary");
 
   return data.data;
@@ -422,7 +745,7 @@ export const fetchElaborationQuestions = async (
   questions: ElaborationQuestion[];
   config: { questionCount: number; difficulty: "mixed" | "core" | "advanced" };
 }> => {
-  const { data, error } = await supabase.functions.invoke<{
+  const data = await invokeEdgeFunction<{
     data?: {
       document: { id: string; title: string };
       questions: ElaborationQuestion[];
@@ -437,7 +760,6 @@ export const fetchElaborationQuestions = async (
     },
   });
 
-  if (error) throw error;
   if (!data?.data) throw new Error("Failed to load elaboration prompts");
 
   const questionCount = data.data.config?.questionCount ?? data.data.questions.length;
@@ -456,18 +778,14 @@ export const fetchElaborationQuestions = async (
 export const evaluateElaborationAnswer = async (
   params: { question: ElaborationQuestion; answer: string },
 ): Promise<ElaborationEvaluation> => {
-  const { data, error } = await supabase.functions.invoke<{ data?: ElaborationEvaluation }>(
-    "elaboration-mode",
-    {
-      body: {
-        action: "evaluate-answer",
-        question: params.question,
-        userAnswer: params.answer,
-      },
+  const data = await invokeEdgeFunction<{ data?: ElaborationEvaluation }>("elaboration-mode", {
+    body: {
+      action: "evaluate-answer",
+      question: params.question,
+      userAnswer: params.answer,
     },
-  );
+  });
 
-  if (error) throw error;
   if (!data?.data) throw new Error("Failed to score elaboration");
 
   return data.data;
@@ -476,18 +794,14 @@ export const evaluateElaborationAnswer = async (
 export const summarizeElaborationSession = async (
   params: { documentTitle: string; evaluations: ElaborationSummaryInput[] },
 ): Promise<ElaborationSessionSummary> => {
-  const { data, error } = await supabase.functions.invoke<{ data?: ElaborationSessionSummary }>(
-    "elaboration-mode",
-    {
-      body: {
-        action: "summarize-session",
-        documentTitle: params.documentTitle,
-        evaluations: params.evaluations,
-      },
+  const data = await invokeEdgeFunction<{ data?: ElaborationSessionSummary }>("elaboration-mode", {
+    body: {
+      action: "summarize-session",
+      documentTitle: params.documentTitle,
+      evaluations: params.evaluations,
     },
-  );
+  });
 
-  if (error) throw error;
   if (!data?.data) throw new Error("Failed to generate recap");
 
   return data.data;
@@ -624,11 +938,10 @@ export const fetchQuizResults = async (sessionId: string) => {
  * Fetch the authenticated user's profile details
  */
 export const fetchProfile = async (): Promise<ProfileResponse> => {
-  const { data, error } = await supabase.functions.invoke<ProfileResponse>("get-profile", {
+  const data = await invokeEdgeFunction<ProfileResponse | null>("get-profile", {
     method: "GET",
   });
 
-  if (error) throw error;
   if (!data) throw new Error("No profile data returned");
 
   if (!Array.isArray(data.folders)) {
@@ -753,6 +1066,28 @@ export const createFolder = async (name: string): Promise<string> => {
 
   if (error) throw error;
   return data.id;
+};
+
+export const ensureMockExamFolder = async (): Promise<string> => {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) throw new Error("User not authenticated");
+
+  const { data, error } = await supabase
+    .from("folders")
+    .select("id")
+    .eq("owner_id", user.id)
+    .eq("name", "Mock Exams")
+    .maybeSingle<{ id: string }>();
+
+  if (error && error.code !== "PGRST116") {
+    throw error;
+  }
+
+  if (data?.id) {
+    return data.id;
+  }
+
+  return createFolder("Mock Exams");
 };
 
 export const renameFolder = async (folderId: string, name: string): Promise<void> => {

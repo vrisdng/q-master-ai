@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { User, Session } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
+import { EdgeFunctionFailureError, invokeEdgeFunction } from '@/lib/api';
 
 interface Profile {
   id: string;
@@ -74,13 +75,17 @@ export function useAuth() {
       }
     }
 
-    const { data, error } = await supabase.functions.invoke<GuestCredentials>('guest-session', {
-      method: 'POST',
-      body: {},
-    });
-
-    if (error) {
-      throw new Error(error.message ?? 'Failed to establish guest session');
+    let data: GuestCredentials | null;
+    try {
+      data = await invokeEdgeFunction<GuestCredentials | null>('guest-session', {
+        method: 'POST',
+        body: {},
+      });
+    } catch (error) {
+      if (error instanceof EdgeFunctionFailureError) {
+        throw new Error(error.message);
+      }
+      throw error;
     }
 
     const guestCredentials: GuestCredentials = {

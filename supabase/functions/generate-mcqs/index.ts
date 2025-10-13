@@ -53,6 +53,7 @@ serve(async (req) => {
 		const supabaseUrl = Deno.env.get("SUPABASE_URL");
 		const supabaseKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
 		const lovableApiKey = Deno.env.get("LOVABLE_API_KEY");
+		const model = Deno.env.get("MODEL_ID");
 
 		if (!supabaseUrl) return json(500, { error: "Missing SUPABASE_URL" });
 		if (!supabaseKey)
@@ -154,11 +155,7 @@ serve(async (req) => {
 
 		// IMPORTANT: verify the model id your gateway supports.
 		// If 2.5 isn’t available, try "google/gemini-1.5-flash".
-		const model = "deepseek/deepseek-chat-v3.1:free";
-		// const model =
-		// 	Deno.env.get("LOVABLE_MODEL")?.trim() || "google/gemini-1.5-flash";
-
-		console.log("MODEL: ", model);
+		//const model = "z-ai/glm-4.5-air:free"
 
 		for (
 			let produced = 0;

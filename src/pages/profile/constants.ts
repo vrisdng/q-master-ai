@@ -30,6 +30,11 @@ export const STUDY_MODES = [
     description: "Generate key points, draft summaries, and get instant feedback.",
   },
   {
+    id: "test",
+    label: "Test Mode",
+    description: "Build a mock exam with mixed question types and performance feedback.",
+  },
+  {
     id: "elaboration",
     label: "Elaboration Mode",
     description: "Expand core ideas with why/how prompts and instant AI coaching.",

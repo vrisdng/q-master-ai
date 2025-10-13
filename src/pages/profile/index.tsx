@@ -1,9 +1,12 @@
 import { useMemo } from "react";
 import { useNavigate } from "react-router-dom";
+import { ClipboardList, Sparkles } from "lucide-react";
 
 import { DocumentViewer } from "@/components/DocumentViewer";
 import { useProfile } from "@/hooks/use-profile";
 import GuestUpgradeCallout from "@/components/GuestUpgradeCallout";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 
 import { ProfileCard } from "./components/ProfileCard";
 import { FoldersSection } from "./components/FoldersSection";
@@ -113,6 +116,22 @@ export const ProfilePage = () => {
         isSaving={isSavingProfile}
         hasChanges={hasChanges}
       />
+
+      <Card className="flex flex-col gap-3 p-5 md:flex-row md:items-center md:justify-between">
+        <div className="space-y-1">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <ClipboardList className="h-5 w-5 text-primary" />
+            Test Arena
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            Build multi-format mock exams, track mastery by concept, and revisit missed items instantly.
+          </p>
+        </div>
+        <Button onClick={() => navigate("/tests")} className="gap-2">
+          <Sparkles className="h-4 w-4" />
+          Launch Test Mode
+        </Button>
+      </Card>
 
         {isGuest && (
           <GuestUpgradeCallout

@@ -99,7 +99,7 @@ export const FoldersSection = ({
                   }}
                 >
                   <Pencil className="h-4 w-4" />
-                  Rename
+                  Edit
                 </Button>
                 <Button
                   type="button"

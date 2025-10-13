@@ -85,7 +85,6 @@ const AnonymousPracticeFlow = () => {
   const [previewText, setPreviewText] = useState('');
   const [sourceType, setSourceType] = useState('');
   const [sourceUrl, setSourceUrl] = useState('');
-  const [topics, setTopics] = useState<string[]>([]);
   const [documentId, setDocumentId] = useState('');
   const [studySetId, setStudySetId] = useState('');
   const [sessionId, setSessionId] = useState('');
@@ -113,7 +112,6 @@ const AnonymousPracticeFlow = () => {
       setSourceUrl(studySet.sourceUrl ?? '');
       setSourceText(studySet.text);
       setPreviewText(studySet.text);
-      setTopics(studySet.topics ?? []);
       setDocumentId(studySet.sourceDocumentId ?? '');
       setQuestions(items);
       setAllQuestions(items);
@@ -160,12 +158,6 @@ const AnonymousPracticeFlow = () => {
       setPreviewText(parseResult.text);
       setSourceUrl(normalizedUrl || '');
 
-      const extractedTopics = parseResult.topics
-        .split(',')
-        .map((topic) => topic.trim())
-        .filter(Boolean);
-      setTopics(extractedTopics);
-
       const title = normalizedUrl
         ? `Document from ${new URL(normalizedUrl).hostname}`
         : `${data.sourceType.toUpperCase()} - ${new Date().toLocaleDateString()}`;
@@ -190,7 +182,7 @@ const AnonymousPracticeFlow = () => {
     setSteps((prev) => prev.map((step, i) => (i === index ? { ...step, status } : step)));
   }, []);
 
-  const handleGenerate = useCallback(async (config: { mcqCount: number; difficulty: string; topics: string[] }) => {
+  const handleGenerate = useCallback(async (config: { mcqCount: number; difficulty: string }) => {
     try {
       setStage('generating');
       updateStep(0, 'active');
@@ -198,7 +190,7 @@ const AnonymousPracticeFlow = () => {
       const setId = await createStudySet({
         title: `Study Set - ${new Date().toLocaleDateString()}`,
         text: sourceText,
-        topics: config.topics,
+        topics: [],
         config,
         sourceType,
         sourceUrl: sourceType === 'url' ? sourceUrl : undefined,
@@ -245,8 +237,10 @@ const AnonymousPracticeFlow = () => {
       if (activeIndex >= 0) {
         updateStep(activeIndex, 'error');
       }
+      resetSteps();
+      setStage('upload');
     }
-  }, [documentId, sourceText, sourceType, sourceUrl, steps, updateStep]);
+  }, [documentId, resetSteps, sourceText, sourceType, sourceUrl, steps, updateStep]);
 
   const handleAnswer = useCallback(async (response: string, isCorrect: boolean, timeMs: number) => {
     const currentQuestion = questions[currentQuestionIndex];
@@ -428,7 +422,7 @@ const AnonymousPracticeFlow = () => {
         </TabsContent>
 
         <TabsContent value="config">
-          <ConfigCard topics={topics} onTopicsChange={setTopics} onGenerate={handleGenerate} />
+          <ConfigCard onGenerate={handleGenerate} isGenerating={stage === 'generating'} />
         </TabsContent>
       </Tabs>
     </div>

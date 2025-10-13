@@ -82,6 +82,9 @@ export const useProfileHandlers = ({
         case "feynman":
           navigate(`/study/${documentId}/feynman`);
           break;
+        case "test":
+          navigate(`/study/${documentId}/test`);
+          break;
         default:
           navigate(`/study/${documentId}`);
           break;
