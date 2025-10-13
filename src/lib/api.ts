@@ -587,6 +587,7 @@ export interface CreateTestInput {
   description?: string | null;
   intensity: MockExamIntensity;
   timerEnabled: boolean;
+  timerMinutes: number;
   questionPlan: TestQuestionPlan;
   folderIds: string[];
   documentIds: string[];

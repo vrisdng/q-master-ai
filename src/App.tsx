@@ -5,12 +5,14 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { ThemeProvider } from "@/components/theme-provider";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import AppLayout from "@/components/layout/AppLayout";
 
 const Index = lazy(() => import("./pages/Index"));
 const HomePage = lazy(() => import("./pages/Home"));
 const Auth = lazy(() => import("./pages/Auth"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const ProfilePage = lazy(() => import("./pages/profile"));
+const SettingsPage = lazy(() => import("./pages/Settings"));
 const SummarizeDocument = lazy(() => import("./pages/study/SummarizeDocument"));
 const ElaborationMode = lazy(() => import("./pages/study/ElaborationMode"));
 const SelfExplanationMode = lazy(() => import("./pages/study/SelfExplanationMode"));
@@ -34,18 +36,21 @@ const App = () => (
 						}
 					>
 						<Routes>
-							<Route path="/" element={<HomePage />} />
-							<Route path="/practice" element={<Index />} />
-							<Route path="/auth" element={<Auth />} />
-                            <Route path="/profile" element={<ProfilePage />} />
-                            <Route path="/tests" element={<TestMode />} />
-                            <Route path="/study/:documentId" element={<SummarizeDocument />} />
-                            <Route path="/study/:documentId/test" element={<TestMode />} />
-							<Route path="/study/:documentId/elaboration" element={<ElaborationMode />} />
-							<Route path="/study/:documentId/self-explanation" element={<SelfExplanationMode />} />
-							<Route path="/study/:documentId/feynman" element={<FeynmanMode />} />
-							{/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
-							<Route path="*" element={<NotFound />} />
+							<Route element={<AppLayout />}>
+								<Route path="/" element={<HomePage />} />
+								<Route path="/practice" element={<Index />} />
+								<Route path="/auth" element={<Auth />} />
+								<Route path="/profile" element={<ProfilePage />} />
+								<Route path="/tests" element={<TestMode />} />
+								<Route path="/settings" element={<SettingsPage />} />
+								<Route path="/study/:documentId" element={<SummarizeDocument />} />
+								<Route path="/study/:documentId/test" element={<TestMode />} />
+								<Route path="/study/:documentId/elaboration" element={<ElaborationMode />} />
+								<Route path="/study/:documentId/self-explanation" element={<SelfExplanationMode />} />
+								<Route path="/study/:documentId/feynman" element={<FeynmanMode />} />
+								{/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
+								<Route path="*" element={<NotFound />} />
+							</Route>
 						</Routes>
 					</Suspense>
 				</BrowserRouter>

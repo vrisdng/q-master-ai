@@ -95,6 +95,7 @@ const TestMode = () => {
   const [timerRemainingMs, setTimerRemainingMs] = useState<number | null>(null);
   const [timerTotalMs, setTimerTotalMs] = useState<number | null>(null);
   const [autoSubmitTriggered, setAutoSubmitTriggered] = useState(false);
+  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0);
 
   const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createState, setCreateState] = useState<CreateTestInput>({
@@ -102,6 +103,7 @@ const TestMode = () => {
     description: "",
     intensity: "standard",
     timerEnabled: true,
+    timerMinutes: 25,
     questionPlan: DEFAULT_PLAN,
     folderIds: [],
     documentIds: [],
@@ -134,10 +136,10 @@ const TestMode = () => {
         return true;
     }
   }, [createStep, createState.title, hasSources, totalPlannedQuestions]);
-  const canCreate = useMemo(
-    () => createState.title.trim().length > 0 && hasSources && totalPlannedQuestions > 0,
-    [createState.title, hasSources, totalPlannedQuestions],
-  );
+  const canCreate = useMemo(() => {
+    const timerValid = !createState.timerEnabled || createState.timerMinutes >= 1;
+    return createState.title.trim().length > 0 && hasSources && totalPlannedQuestions > 0 && timerValid;
+  }, [createState.title, createState.timerEnabled, createState.timerMinutes, hasSources, totalPlannedQuestions]);
   const selectedDocuments = useMemo(
     () => documents.filter((doc) => createState.documentIds.includes(doc.id)),
     [documents, createState.documentIds],
@@ -200,6 +202,13 @@ const TestMode = () => {
     return activeRun.questions.length;
   }, [activeRun]);
 
+  useEffect(() => {
+    if (!activeRun) return;
+    setCurrentQuestionIndex((prev) =>
+      Math.min(prev, Math.max(activeRun.questions.length - 1, 0)),
+    );
+  }, [activeRun]);
+
   const resetRunState = useCallback(() => {
     resetTimerState();
     setActiveRun(null);
@@ -208,6 +217,7 @@ const TestMode = () => {
     setMatchingOptionsCache({});
     setIsSubmitting(false);
     setIsPersisting(false);
+    setCurrentQuestionIndex(0);
   }, [resetTimerState]);
 
   const handleCreateTest = useCallback(async () => {
@@ -227,12 +237,15 @@ const TestMode = () => {
       return;
     }
 
+    const sanitizedTimerMinutes = Math.max(1, Math.round(Number(createState.timerMinutes) || 0));
+
     setCreateLoading(true);
     try {
       const created = await createTest({
         ...createState,
         title: createState.title.trim(),
         description: createState.description?.trim() ?? null,
+        timerMinutes: sanitizedTimerMinutes,
       });
       setTests((prev) => [created, ...prev]);
       setCreateStep(1);
@@ -242,6 +255,7 @@ const TestMode = () => {
         description: "",
         intensity: "standard",
         timerEnabled: true,
+        timerMinutes: 25,
         questionPlan: DEFAULT_PLAN,
         folderIds: [],
         documentIds: [],
@@ -290,6 +304,7 @@ const TestMode = () => {
 
         setResponses(initialResponses);
         setMatchingOptionsCache(matchingOptions);
+        setCurrentQuestionIndex(0);
 
         if (run.timer.enabled) {
           const total = Math.max(run.timer.suggestedMinutes, 1) * 60 * 1000;
@@ -379,6 +394,29 @@ const TestMode = () => {
       }
     });
   }, [activeRun, responses]);
+
+  const isQuestionAnswered = useCallback(
+    (question: MockExamQuestion) => {
+      const raw = responses[question.id];
+      switch (question.type) {
+        case "mcq":
+        case "fill-in-the-blank":
+        case "essay":
+        case "short-answer":
+          return typeof raw === "string" && raw.trim().length > 0;
+        case "matching": {
+          const map = (raw ?? {}) as MatchingResponseMap;
+          return question.pairs.every((pair) => {
+            const value = map[pair.prompt];
+            return typeof value === "string" && value.trim().length > 0;
+          });
+        }
+        default:
+          return false;
+      }
+    },
+    [responses],
+  );
 
   const handleSubmitRun = useCallback(async ({ auto = false }: { auto?: boolean } = {}) => {
     if (!activeRun || !activeTest) {
@@ -602,6 +640,34 @@ const TestMode = () => {
                             }
                           />
                         </div>
+                        {createState.timerEnabled && (
+                          <div className="space-y-2">
+                            <div className="flex items-center justify-between">
+                              <Label htmlFor="test-timer-minutes" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                                Duration (minutes)
+                              </Label>
+                              <span className="text-xs text-muted-foreground">
+                                Min 1
+                              </span>
+                            </div>
+                            <Input
+                              id="test-timer-minutes"
+                              type="number"
+                              min={1}
+                              value={createState.timerMinutes}
+                              onChange={(event) => {
+                                const parsed = Number(event.target.value);
+                                setCreateState((prev) => ({
+                                  ...prev,
+                                  timerMinutes: Number.isFinite(parsed) ? Math.max(1, Math.round(parsed)) : prev.timerMinutes,
+                                }));
+                              }}
+                            />
+                            <p className="text-xs text-muted-foreground">
+                              Auto-submit will trigger when the countdown reaches zero.
+                            </p>
+                          </div>
+                        )}
                         <Card className="p-3 text-xs text-muted-foreground bg-muted/60">
                           Prefer to work untimed? Leave this off and you can submit whenever you’re ready.
                         </Card>
@@ -685,7 +751,11 @@ const TestMode = () => {
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-muted-foreground">Timer</span>
-                          <span className="font-medium text-foreground">{createState.timerEnabled ? "Auto-submit when time is up" : "Manual submission"}</span>
+                          <span className="font-medium text-foreground">
+                            {createState.timerEnabled
+                              ? `Auto-submit after ${createState.timerMinutes} minute${createState.timerMinutes === 1 ? "" : "s"}`
+                              : "Manual submission"}
+                          </span>
                         </div>
                         <div className="flex items-center justify-between">
                           <span className="text-muted-foreground">Question count</span>
@@ -850,7 +920,9 @@ const TestMode = () => {
                   <div className="grid gap-2 text-sm text-muted-foreground">
                     <p>
                       <strong className="text-foreground">{total}</strong> questions • Timer{" "}
-                      {test.timerEnabled ? "on" : "off"}
+                      {test.timerEnabled
+                        ? `on (${test.timerMinutes} minute${test.timerMinutes === 1 ? "" : "s"})`
+                        : "off"}
                     </p>
                     <p>
                       MCQ {test.questionPlan.mcq} • Fill-in {test.questionPlan.fillInTheBlank} • Matching{" "}
@@ -893,6 +965,44 @@ const TestMode = () => {
   const renderRun = () => {
     if (!activeRun || !activeTest) return null;
 
+    const questionCount = activeRun.questions.length;
+    const safeIndex = Math.min(Math.max(currentQuestionIndex, 0), Math.max(questionCount - 1, 0));
+    const currentQuestion = activeRun.questions[safeIndex];
+
+    if (!currentQuestion) {
+      return (
+        <div className="max-w-3xl mx-auto space-y-6">
+          <Card className="p-6 shadow-medium space-y-3">
+            <h2 className="text-xl font-semibold">No questions available</h2>
+            <p className="text-sm text-muted-foreground">
+              This test run did not load any questions. Head back to the dashboard and try launching the test again.
+            </p>
+          </Card>
+          <div className="flex justify-end">
+            <Button variant="outline" onClick={handleBackToDashboard}>
+              Back to dashboard
+            </Button>
+          </div>
+        </div>
+      );
+    }
+
+    const answeredCount = activeRun.questions.reduce(
+      (count, question) => (isQuestionAnswered(question) ? count + 1 : count),
+      0,
+    );
+
+    const handlePreviousQuestion = () => {
+      setCurrentQuestionIndex((prev) => Math.max(0, prev - 1));
+    };
+
+    const handleNextQuestion = () => {
+      setCurrentQuestionIndex((prev) => Math.min(questionCount - 1, prev + 1));
+    };
+
+    const canGoPrevious = safeIndex > 0;
+    const canGoNext = safeIndex < questionCount - 1;
+
     return (
       <div className="max-w-5xl mx-auto space-y-6">
         <Card className="p-6 shadow-medium">
@@ -914,31 +1024,74 @@ const TestMode = () => {
           totalMs={timerTotalMs ?? undefined}
         />
 
-        <div className="space-y-4">
-          {activeRun.questions.map((question, index) => (
-            <Card key={question.id} className="p-6 shadow-medium space-y-4">
-              <div className="flex items-start gap-3">
-                <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-semibold">
+        <Card className="p-4 shadow-medium space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-muted-foreground">
+              Question {safeIndex + 1} of {questionCount} • {answeredCount} answered
+            </p>
+            <div className="flex gap-2">
+              <Button type="button" variant="outline" size="sm" onClick={handlePreviousQuestion} disabled={!canGoPrevious}>
+                Prev
+              </Button>
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                onClick={handleNextQuestion}
+                disabled={!canGoNext}
+              >
+                Next
+              </Button>
+            </div>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {activeRun.questions.map((question, index) => {
+              const answered = isQuestionAnswered(question);
+              const isCurrent = index === safeIndex;
+              return (
+                <button
+                  key={question.id}
+                  type="button"
+                  onClick={() => setCurrentQuestionIndex(index)}
+                  className={cn(
+                    "h-8 w-8 rounded-full border text-xs font-medium transition-smooth focus:outline-none focus-visible:ring focus-visible:ring-primary/40",
+                    isCurrent
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : answered
+                      ? "border-primary/60 text-primary hover:bg-primary/10"
+                      : "border-border text-muted-foreground hover:border-primary/40",
+                  )}
+                  aria-current={isCurrent ? "true" : "false"}
+                  aria-label={`Go to question ${index + 1}`}
+                >
                   {index + 1}
-                </div>
-                <div className="flex-1 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <Badge variant="outline" className="capitalize">
-                      {question.type.replace(/-/g, " ")}
-                    </Badge>
-                    {question.sources && question.sources.length > 0 && (
-                      <span className="text-xs text-muted-foreground">
-                        Grounded in source excerpts
-                      </span>
-                    )}
-                  </div>
-                  <p className="text-base font-medium text-foreground">{question.prompt}</p>
-                  <div>{renderQuestionInput(question)}</div>
-                </div>
+                </button>
+              );
+            })}
+          </div>
+        </Card>
+
+        <Card className="p-6 shadow-medium space-y-4">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-lg bg-primary/10 flex items-center justify-center text-primary font-semibold">
+              {safeIndex + 1}
+            </div>
+            <div className="flex-1 space-y-2">
+              <div className="flex items-center gap-2">
+                <Badge variant="outline" className="capitalize">
+                  {currentQuestion.type.replace(/-/g, " ")}
+                </Badge>
+                {currentQuestion.sources && currentQuestion.sources.length > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    Grounded in source excerpts
+                  </span>
+                )}
               </div>
-            </Card>
-          ))}
-        </div>
+              <p className="text-base font-medium text-foreground">{currentQuestion.prompt}</p>
+              <div>{renderQuestionInput(currentQuestion)}</div>
+            </div>
+          </div>
+        </Card>
 
         <div className="flex justify-end gap-3">
           <Button variant="outline" onClick={handleBackToDashboard}>

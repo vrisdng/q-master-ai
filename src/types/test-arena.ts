@@ -14,6 +14,7 @@ export interface TestDefinition {
   description?: string | null;
   intensity: MockExamIntensity;
   timerEnabled: boolean;
+  timerMinutes: number;
   questionPlan: TestQuestionPlan;
   folderIds: string[];
   documentIds: string[];

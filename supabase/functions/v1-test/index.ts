@@ -37,7 +37,11 @@ interface TestRow {
 	folder_ids: string[];
 	document_ids: string[];
 	status: TestStatus;
-	config: Record<string, unknown>;
+	config: {
+		timerMode?: "countdown" | "none";
+		timerMinutes?: number;
+		[key: string]: unknown;
+	};
 	created_at: string;
 	updated_at: string;
 }
@@ -799,6 +803,49 @@ const countTotalQuestions = (plan: QuestionPlan) =>
 	plan.essay.count +
 	plan.shortAnswer.count;
 
+const estimatePlanMinutes = (plan: QuestionPlan) =>
+	Math.max(
+		10,
+		Math.round(
+			plan.mcq * 4 +
+				plan.fillInTheBlank * 3 +
+				plan.matching * 5 +
+				plan.essay.count * 12 +
+				plan.shortAnswer.count * 6,
+		),
+	);
+
+const sanitizeTimerMinutes = (value: unknown, fallback: number) => {
+	const numeric =
+		typeof value === "number"
+			? value
+			: typeof value === "string"
+			? Number(value)
+			: NaN;
+
+	if (!Number.isFinite(numeric)) {
+		return Math.max(1, Math.round(fallback));
+	}
+
+	return Math.max(1, Math.round(numeric));
+};
+
+const resolveTimerMinutes = (test: TestRow) =>
+	sanitizeTimerMinutes(
+		test.config?.timerMinutes,
+		estimatePlanMinutes(test.question_plan),
+	);
+
+const composeTestConfig = (
+	previous: TestRow["config"] | null | undefined,
+	timerEnabled: boolean,
+	timerMinutes: number,
+) => ({
+	...(previous ?? {}),
+	timerMode: timerEnabled ? "countdown" : "none",
+	timerMinutes,
+});
+
 const buildRequirementSummary = (plan: QuestionPlan) => {
 	const entries: string[] = [];
 	if (plan.mcq > 0) entries.push(`${plan.mcq} MCQs with explanations`);
@@ -817,16 +864,8 @@ const generateExam = async (
 	const requirementSummary = buildRequirementSummary(test.question_plan);
 
 	const totalQuestions = countTotalQuestions(test.question_plan);
-	const targetMinutes = Math.max(
-		10,
-		Math.round(
-			test.question_plan.mcq * 4 +
-				test.question_plan.fillInTheBlank * 3 +
-				test.question_plan.matching * 5 +
-				test.question_plan.essay.count * 12 +
-				test.question_plan.shortAnswer.count * 6,
-		),
-	);
+	const recommendedMinutes = estimatePlanMinutes(test.question_plan);
+	const configuredMinutes = resolveTimerMinutes(test);
 
 	const systemPrompt =
 		"You are an instructional designer creating high-quality mock exams. Respond with strict JSON only.";
@@ -892,8 +931,8 @@ ${content.combinedContent}
 		timer: {
 			enabled: test.timer_enabled,
 			suggestedMinutes: test.timer_enabled
-				? targetMinutes
-				: Math.max(15, targetMinutes),
+				? configuredMinutes
+				: Math.max(configuredMinutes, recommendedMinutes),
 		},
 		questions,
 	};
@@ -1136,6 +1175,7 @@ const mapTestRow = (row: TestRow) => ({
 	description: row.description,
 	intensity: row.intensity,
 	timerEnabled: row.timer_enabled,
+	timerMinutes: resolveTimerMinutes(row),
 	questionPlan: row.question_plan,
 	folderIds: row.folder_ids ?? [],
 	documentIds: row.document_ids ?? [],
@@ -1231,6 +1271,13 @@ serve(async (req) => {
 				const questionPlan = body.questionPlan as QuestionPlan | undefined;
 				const folderIds = Array.isArray(body.folderIds) ? body.folderIds : [];
 				const documentIds = Array.isArray(body.documentIds) ? body.documentIds : [];
+				const planForTimer = questionPlan ?? {
+					mcq: 0,
+					fillInTheBlank: 0,
+					matching: 0,
+					essay: { count: 0, wordCount: 0 },
+					shortAnswer: { count: 0, wordCount: 0 },
+				};
 
 				if (!title) {
 					return jsonResponse(400, { error: "title is required" });
@@ -1248,6 +1295,11 @@ serve(async (req) => {
 					return jsonResponse(400, { error: "Add at least one question to the plan" });
 				}
 
+				const timerMinutes = sanitizeTimerMinutes(
+					body.timerMinutes,
+					estimatePlanMinutes(planForTimer),
+				);
+
 				const { data, error } = await supabase
 					.from("test_arena_tests")
 					.insert({
@@ -1260,9 +1312,11 @@ serve(async (req) => {
 						folder_ids: folderIds,
 						document_ids: documentIds,
 						status: "ready",
-						config: {
-							timerMode: timerEnabled ? "countdown" : "none",
-						},
+						config: composeTestConfig(
+							null,
+							timerEnabled,
+							timerMinutes,
+						),
 					})
 					.select("*")
 					.single<TestRow>();
@@ -1317,8 +1371,30 @@ serve(async (req) => {
 					updates.description = body.description.trim();
 				}
 
+				let configShouldUpdate = false;
+				let nextTimerEnabled = testRow.timer_enabled;
+				let nextTimerMinutes = resolveTimerMinutes(testRow);
+
 				if (typeof body.timerEnabled === "boolean") {
+					nextTimerEnabled = body.timerEnabled;
 					updates.timer_enabled = body.timerEnabled;
+					configShouldUpdate = true;
+				}
+
+				if (body.timerMinutes !== undefined) {
+					nextTimerMinutes = sanitizeTimerMinutes(
+						body.timerMinutes,
+						nextTimerMinutes,
+					);
+					configShouldUpdate = true;
+				}
+
+				if (configShouldUpdate) {
+					updates.config = composeTestConfig(
+						testRow.config,
+						nextTimerEnabled,
+						nextTimerMinutes,
+					);
 				}
 
 				if (body.questionPlan) {
